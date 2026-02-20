@@ -16,6 +16,8 @@ let timeLeft = 80;
 let hasGuessedCorrectly = false;
 let playersWhoGuessed = new Set();
 let totalPlayers = 0;
+let isJoining = false;
+let gameData = null;
 
 const colors = [
     '#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff',
@@ -35,31 +37,58 @@ const wordBank = [
     'glasses', 'hat', 'shoe', 'glove', 'umbrella', 'backpack'
 ];
 
+// Initialize immediately when page loads
 document.addEventListener('DOMContentLoaded', async () => {
-    canvas = document.getElementById('gameCanvas');
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
+    console.log("Page loaded, starting initialization...");
     
-    ctx = canvas.getContext('2d');
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const joinBtn = document.getElementById('joinBtn');
+    const statusText = document.getElementById('statusText');
+    
+    // Setup canvas
+    canvas = document.getElementById('gameCanvas');
+    if (canvas) {
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     
     setupColorPalette();
     
+    // Initialize Firebase Auth
     try {
+        console.log("Initializing auth...");
         currentUser = await initAuth();
+        console.log("Auth successful, user:", currentUser.uid);
+        
+        // Enable button
+        if (joinBtn) {
+            joinBtn.disabled = false;
+            joinBtn.textContent = 'Play Now';
+            joinBtn.onclick = joinGame;
+        }
+        if (statusText) statusText.textContent = 'Ready to play!';
+        
     } catch (error) {
-        showError("Connection failed. Refresh page.");
+        console.error("Auth failed:", error);
+        if (joinBtn) {
+            joinBtn.textContent = 'Connection Failed';
+        }
+        if (statusText) statusText.textContent = 'Error: ' + error.message;
     }
 });
 
 function resizeCanvas() {
+    if (!canvas) return;
     const container = document.querySelector('.canvas-section');
-    if (canvas && container) {
+    if (container) {
         canvas.width = container.clientWidth;
         canvas.height = container.clientHeight;
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (ctx) {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
     }
 }
 
@@ -79,6 +108,7 @@ function setupColorPalette() {
 }
 
 function showError(msg) {
+    console.error(msg);
     const err = document.getElementById('errorDisplay');
     if (err) {
         err.textContent = msg;
@@ -87,11 +117,26 @@ function showError(msg) {
     }
 }
 
-window.joinGame = async function() {
-    if (!currentUser) return;
+// MAIN JOIN FUNCTION - attached to button
+async function joinGame() {
+    console.log("Join game clicked!");
     
-    playerName = document.getElementById('playerName').value.trim();
-    let roomCode = document.getElementById('roomCode').value.trim().toUpperCase();
+    if (isJoining) {
+        console.log("Already joining, ignoring click");
+        return;
+    }
+    
+    if (!currentUser) {
+        showError("Not connected yet. Please wait...");
+        return;
+    }
+    
+    const nameInput = document.getElementById('playerName');
+    const codeInput = document.getElementById('roomCode');
+    const joinBtn = document.getElementById('joinBtn');
+    
+    playerName = nameInput ? nameInput.value.trim() : '';
+    let roomCode = codeInput ? codeInput.value.trim().toUpperCase() : '';
     
     if (!playerName) {
         alert('Enter your name!');
@@ -103,8 +148,19 @@ window.joinGame = async function() {
     }
     
     roomId = roomCode;
+    isJoining = true;
+    
+    // Update UI
+    if (joinBtn) {
+        joinBtn.disabled = true;
+        joinBtn.classList.add('loading');
+        joinBtn.textContent = 'Joining...';
+    }
+    
+    console.log("Joining room:", roomId, "as", playerName);
     
     try {
+        // Add player to room
         const playerRef = ref(db, `rooms/${roomId}/players/${currentUser.uid}`);
         await set(playerRef, {
             name: playerName,
@@ -114,28 +170,44 @@ window.joinGame = async function() {
             joinedAt: Date.now()
         });
         
+        console.log("Player added to database");
+        
+        // Setup disconnect cleanup
         onDisconnect(playerRef).remove();
         
-        document.getElementById('loginScreen').style.display = 'none';
-        document.getElementById('gameScreen').style.display = 'flex';
-        document.getElementById('displayRoomCode').textContent = roomId;
+        // Switch screens
+        const loginScreen = document.getElementById('loginScreen');
+        const gameScreen = document.getElementById('gameScreen');
         
+        if (loginScreen) loginScreen.style.display = 'none';
+        if (gameScreen) gameScreen.style.display = 'flex';
+        
+        const roomCodeDisplay = document.getElementById('displayRoomCode');
+        if (roomCodeDisplay) roomCodeDisplay.textContent = roomId;
+        
+        // Start game
         initGame();
+        
     } catch (error) {
+        console.error("Join error:", error);
         showError("Failed to join: " + error.message);
+        isJoining = false;
+        
+        if (joinBtn) {
+            joinBtn.disabled = false;
+            joinBtn.classList.remove('loading');
+            joinBtn.textContent = 'Play Now';
+        }
     }
-};
+}
 
-window.exitGame = function() {
-    if (gameInterval) clearInterval(gameInterval);
-    if (roomId && currentUser) {
-        remove(ref(db, `rooms/${roomId}/players/${currentUser.uid}`));
-    }
-    location.reload();
-};
+// Make it global so HTML can access it
+window.joinGame = joinGame;
 
 function initGame() {
-    // Players listener
+    console.log("Initializing game...");
+    
+    // Listen to players
     onValue(ref(db, `rooms/${roomId}/players`), (snapshot) => {
         const players = snapshot.val() || {};
         totalPlayers = Object.keys(players).length;
@@ -143,35 +215,22 @@ function initGame() {
         checkAllGuessed(players);
     });
     
-    // Game state listener
+    // Listen to game state
     onValue(ref(db, `rooms/${roomId}/game`), (snapshot) => {
-        handleGameState(snapshot.val());
+        gameData = snapshot.val();
+        handleGameState(gameData);
     });
     
-    // Drawing listener
+    // Listen to drawing
     onValue(ref(db, `rooms/${roomId}/drawing`), (snapshot) => {
         if (!isDrawer && snapshot.val()) {
             replayDrawing(snapshot.val());
         }
     });
     
-    // Chat listener
+    // Listen to chat
     onValue(ref(db, `rooms/${roomId}/chat`), (snapshot) => {
         updateChat(snapshot.val());
-    });
-    
-    // Drawer disconnect detection
-    onValue(ref(db, `rooms/${roomId}/game/currentDrawer`), (snapshot) => {
-        const drawerId = snapshot.val();
-        if (drawerId) {
-            const drawerRef = ref(db, `rooms/${roomId}/players/${drawerId}`);
-            get(drawerRef).then((playerSnap) => {
-                if (!playerSnap.exists()) {
-                    // Drawer left, end round
-                    handleDrawerDisconnect();
-                }
-            });
-        }
     });
     
     setupCanvasEvents();
@@ -181,139 +240,103 @@ function initGame() {
 function updatePlayersList(players) {
     const container = document.getElementById('playersList');
     if (!container) return;
+    
     container.innerHTML = '';
     
-    const gameRef = ref(db, `rooms/${roomId}/game`);
-    get(gameRef).then((gameSnap) => {
-        const gameData = gameSnap.val() || {};
-        const currentDrawerId = gameData.currentDrawer;
+    if (!gameData) return;
+    
+    const currentDrawerId = gameData.currentDrawer;
+    
+    Object.entries(players).forEach(([uid, player]) => {
+        const div = document.createElement('div');
+        div.className = 'player-item';
         
-        Object.entries(players).forEach(([uid, player]) => {
-            const div = document.createElement('div');
-            div.className = 'player-item';
-            div.id = `player-${uid}`;
-            
-            if (uid === currentDrawerId) {
-                div.classList.add('current-drawer');
-            }
-            if (player.hasGuessed) {
-                div.classList.add('guessed-correct');
-            }
-            if (uid === currentUser.uid) {
-                div.style.background = '#e3f2fd';
-            }
-            
-            div.innerHTML = `
-                <div class="player-avatar">${player.name[0].toUpperCase()}</div>
-                <div class="player-info">
-                    <div class="player-name">${player.name} ${uid === currentUser.uid ? '(You)' : ''}</div>
-                    <div class="player-status">${uid === currentDrawerId ? '✏️ Drawing' : (player.hasGuessed ? '✓ Guessed' : 'Guessing...')}</div>
-                    <div class="player-score">Score: ${player.score || 0}</div>
-                </div>
-            `;
-            container.appendChild(div);
-        });
+        if (uid === currentDrawerId) div.classList.add('current-drawer');
+        if (player.hasGuessed) div.classList.add('guessed-correct');
+        if (uid === currentUser.uid) div.style.background = '#e3f2fd';
+        
+        div.innerHTML = `
+            <div class="player-avatar">${player.name ? player.name[0].toUpperCase() : '?'}</div>
+            <div class="player-info">
+                <div class="player-name">${player.name || 'Unknown'} ${uid === currentUser.uid ? '(You)' : ''}</div>
+                <div class="player-status">${uid === currentDrawerId ? '✏️ Drawing' : (player.hasGuessed ? '✓ Guessed' : 'Guessing...')}</div>
+                <div class="player-score">${player.score || 0} pts</div>
+            </div>
+        `;
+        container.appendChild(div);
     });
 }
 
-function handleGameState(gameData) {
-    if (!gameData) return;
+function handleGameState(data) {
+    if (!data) return;
     
-    if (gameData.timeLeft !== undefined) {
-        document.getElementById('timer').textContent = gameData.timeLeft;
-        timeLeft = gameData.timeLeft;
+    gameData = data;
+    
+    if (data.timeLeft !== undefined) {
+        const timerEl = document.getElementById('timer');
+        if (timerEl) timerEl.textContent = data.timeLeft;
+        timeLeft = data.timeLeft;
     }
     
-    isDrawer = gameData.currentDrawer === currentUser.uid;
+    isDrawer = data.currentDrawer === currentUser.uid;
+    
     const wordDisplay = document.getElementById('wordDisplay');
     const toolsBar = document.getElementById('toolsBar');
     const waitingOverlay = document.getElementById('waitingOverlay');
     const drawerIndicator = document.getElementById('drawerIndicator');
     
-    // Reset guess status for new round
-    if (gameData.status === 'choosing') {
+    if (data.status === 'choosing') {
         hasGuessedCorrectly = false;
         playersWhoGuessed.clear();
-        resetPlayerGuessStatus();
     }
     
     if (isDrawer) {
-        drawerIndicator.style.display = 'block';
-        toolsBar.style.display = 'flex';
-        waitingOverlay.style.display = 'none';
+        if (drawerIndicator) drawerIndicator.style.display = 'block';
+        if (toolsBar) toolsBar.style.display = 'flex';
+        if (waitingOverlay) waitingOverlay.style.display = 'none';
         
-        if (gameData.status === 'choosing' && !gameData.currentWord) {
+        if (data.status === 'choosing' && !data.currentWord) {
             showWordSelection();
-        } else if (gameData.currentWord) {
-            currentWord = gameData.currentWord;
-            wordDisplay.textContent = currentWord;
+        } else if (data.currentWord) {
+            currentWord = data.currentWord;
+            if (wordDisplay) wordDisplay.textContent = currentWord;
         }
     } else {
-        drawerIndicator.style.display = 'none';
-        toolsBar.style.display = 'none';
+        if (drawerIndicator) drawerIndicator.style.display = 'none';
+        if (toolsBar) toolsBar.style.display = 'none';
         
-        if (gameData.status === 'choosing') {
-            waitingOverlay.style.display = 'flex';
-            wordDisplay.textContent = '...';
-        } else if (gameData.currentWord) {
-            waitingOverlay.style.display = 'none';
-            currentWord = gameData.currentWord;
+        if (data.status === 'choosing') {
+            if (waitingOverlay) waitingOverlay.style.display = 'flex';
+            if (wordDisplay) wordDisplay.textContent = '...';
+        } else if (data.currentWord) {
+            currentWord = data.currentWord;
+            if (waitingOverlay) waitingOverlay.style.display = 'none';
             
             if (hasGuessedCorrectly) {
-                wordDisplay.textContent = currentWord;
+                if (wordDisplay) wordDisplay.textContent = currentWord;
             } else {
-                wordDisplay.textContent = '_ '.repeat(currentWord.length);
+                if (wordDisplay) wordDisplay.textContent = '_ '.repeat(currentWord.length);
             }
         }
     }
 }
 
-function resetPlayerGuessStatus() {
-    get(ref(db, `rooms/${roomId}/players`)).then((snapshot) => {
-        const players = snapshot.val() || {};
-        Object.keys(players).forEach((uid) => {
-            update(ref(db, `rooms/${roomId}/players/${uid}`), { hasGuessed: false });
-        });
-    });
-}
-
 function checkAllGuessed(players) {
     if (!isDrawer || !currentWord) return;
     
-    const otherPlayers = Object.entries(players).filter(([uid]) => uid !== currentUser.uid);
-    const allOthersGuessed = otherPlayers.length > 0 && otherPlayers.every(([, p]) => p.hasGuessed);
-    
-    if (allOthersGuessed) {
-        setTimeout(() => endRound(), 2000);
-    }
-}
-
-async function handleDrawerDisconnect() {
-    // Reveal word to everyone
-    const gameRef = ref(db, `rooms/${roomId}/game`);
-    const gameSnap = await get(gameRef);
-    const gameData = gameSnap.val();
-    
-    if (gameData && gameData.currentWord) {
-        await push(ref(db, `rooms/${roomId}/chat`), {
-            username: 'System',
-            message: `Drawer left! The word was: ${gameData.currentWord}`,
-            type: 'system',
-            timestamp: Date.now()
-        });
-        
-        // Move to next player immediately
-        endRound();
+    const others = Object.entries(players).filter(([uid]) => uid !== currentUser.uid);
+    if (others.length > 0 && others.every(([, p]) => p.hasGuessed)) {
+        setTimeout(() => endRound(), 1500);
     }
 }
 
 function showWordSelection() {
     const modal = document.getElementById('wordModal');
     const options = document.getElementById('wordOptions');
-    options.innerHTML = '';
+    if (!modal || !options) return;
     
-    const shuffled = [...wordBank].sort(() => 0.5 - Math.random());
-    const choices = shuffled.slice(0, 3);
+    options.innerHTML = '';
+    const choices = [...wordBank].sort(() => 0.5 - Math.random()).slice(0, 3);
     
     choices.forEach(word => {
         const btn = document.createElement('button');
@@ -327,14 +350,15 @@ function showWordSelection() {
 }
 
 async function selectWord(word) {
-    document.getElementById('wordModal').style.display = 'none';
+    const modal = document.getElementById('wordModal');
+    if (modal) modal.style.display = 'none';
+    
     currentWord = word;
     
     await update(ref(db, `rooms/${roomId}/game`), {
         currentWord: word,
         status: 'drawing',
-        timeLeft: 80,
-        startTime: Date.now()
+        timeLeft: 80
     });
     
     clearCanvasLocal();
@@ -347,10 +371,7 @@ function startTimer() {
     gameInterval = setInterval(async () => {
         timeLeft--;
         await update(ref(db, `rooms/${roomId}/game`), { timeLeft });
-        
-        if (timeLeft <= 0) {
-            endRound();
-        }
+        if (timeLeft <= 0) endRound();
     }, 1000);
 }
 
@@ -358,40 +379,25 @@ async function endRound() {
     if (gameInterval) clearInterval(gameInterval);
     
     const gameRef = ref(db, `rooms/${roomId}/game`);
-    const gameSnap = await get(gameRef);
-    const gameData = gameSnap.val();
+    const snap = await get(gameRef);
+    const data = snap.val();
+    if (!data) return;
     
-    if (!gameData) return;
-    
-    // Reveal word if time ran out
     if (timeLeft <= 0) {
         await push(ref(db, `rooms/${roomId}/chat`), {
             username: 'System',
-            message: `Time up! The word was: ${gameData.currentWord}`,
+            message: `Time up! Word was: ${data.currentWord}`,
             type: 'system',
             timestamp: Date.now()
         });
     }
     
-    // Find next drawer
     const playersSnap = await get(ref(db, `rooms/${roomId}/players`));
     const players = Object.keys(playersSnap.val() || {});
-    
     if (players.length === 0) return;
     
-    const currentIndex = players.indexOf(gameData.currentDrawer);
-    let nextIndex = (currentIndex + 1) % players.length;
-    let nextDrawer = players[nextIndex];
-    
-    // Skip if next drawer is disconnected (shouldn't happen with onDisconnect)
-    let attempts = 0;
-    while (attempts < players.length) {
-        const nextPlayerSnap = await get(ref(db, `rooms/${roomId}/players/${nextDrawer}`));
-        if (nextPlayerSnap.exists()) break;
-        nextIndex = (nextIndex + 1) % players.length;
-        nextDrawer = players[nextIndex];
-        attempts++;
-    }
+    const idx = players.indexOf(data.currentDrawer);
+    const nextDrawer = players[(idx + 1) % players.length];
     
     await update(gameRef, {
         currentDrawer: nextDrawer,
@@ -402,9 +408,16 @@ async function endRound() {
     
     await remove(ref(db, `rooms/${roomId}/drawing`));
     clearCanvasLocal();
+    
+    // Reset guess status
+    players.forEach(uid => {
+        update(ref(db, `rooms/${roomId}/players/${uid}`), { hasGuessed: false });
+    });
 }
 
 function setupCanvasEvents() {
+    if (!canvas) return;
+    
     let lastX = 0, lastY = 0;
     
     function getCoords(e) {
@@ -434,7 +447,6 @@ function setupCanvasEvents() {
         ctx.beginPath();
         ctx.moveTo(lastX, lastY);
         ctx.lineTo(coords.x, coords.y);
-        
         ctx.strokeStyle = currentTool === 'eraser' ? '#ffffff' : currentColor;
         ctx.lineWidth = currentTool === 'eraser' ? currentSize * 2 : currentSize;
         ctx.lineCap = 'round';
@@ -466,6 +478,7 @@ function setupCanvasEvents() {
 }
 
 function replayDrawing(drawingData) {
+    if (!ctx) return;
     Object.values(drawingData).forEach(stroke => {
         ctx.beginPath();
         ctx.moveTo(stroke.x0, stroke.y0);
@@ -503,6 +516,7 @@ window.clearCanvas = async function() {
 };
 
 function clearCanvasLocal() {
+    if (!ctx) return;
     ctx.fillStyle = 'white';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
@@ -511,35 +525,29 @@ window.handleChatKeypress = async function(e) {
     if (e.key !== 'Enter') return;
     
     const input = document.getElementById('chatInput');
+    if (!input) return;
+    
     const message = input.value.trim();
     if (!message) return;
     
-    // Drawer can't guess
     if (isDrawer) {
         input.value = '';
         return;
     }
     
-    // Check correct guess
     if (!hasGuessedCorrectly && currentWord && message.toLowerCase() === currentWord.toLowerCase()) {
         hasGuessedCorrectly = true;
-        playersWhoGuessed.add(currentUser.uid);
         
-        // Update player status
-        await update(ref(db, `rooms/${roomId}/players/${currentUser.uid}`), {
-            hasGuessed: true
-        });
+        await update(ref(db, `rooms/${roomId}/players/${currentUser.uid}`), { hasGuessed: true });
         
-        // Add score
         const playerRef = ref(db, `rooms/${roomId}/players/${currentUser.uid}`);
         const snap = await get(playerRef);
-        const score = (snap.val()?.score || 0) + Math.ceil(timeLeft / 2) + 10;
-        await update(playerRef, { score });
+        const newScore = (snap.val()?.score || 0) + Math.ceil(timeLeft / 2) + 10;
+        await update(playerRef, { score: newScore });
         
-        // System message
         await push(ref(db, `rooms/${roomId}/chat`), {
             username: 'System',
-            message: `${playerName} guessed the word!`,
+            message: `${playerName} guessed it!`,
             type: 'system',
             timestamp: Date.now()
         });
@@ -548,7 +556,7 @@ window.handleChatKeypress = async function(e) {
         return;
     }
     
-    // Send message with visibility logic
+    // Private message if already guessed
     const chatData = {
         username: playerName,
         message: message,
@@ -557,10 +565,10 @@ window.handleChatKeypress = async function(e) {
         type: 'guess'
     };
     
-    // If player has guessed, message is private (only drawer and other guessers see it)
-    if (hasGuessedCorrectly) {
+    if (hasGuessedCorrectly && gameData) {
         chatData.isPrivate = true;
-        chatData.visibleTo = [gameData?.currentDrawer, ...Array.from(playersWhoGuessed)];
+        const guessers = Object.keys((await get(ref(db, `rooms/${roomId}/players`))).val() || {};
+        chatData.visibleTo = [gameData.currentDrawer, ...Object.entries(guessers).filter(([uid, p]) => p.hasGuessed).map(([uid]) => uid)];
     }
     
     await push(ref(db, `rooms/${roomId}/chat`), chatData);
@@ -569,42 +577,29 @@ window.handleChatKeypress = async function(e) {
 
 function updateChat(messages) {
     const container = document.getElementById('chatMessages');
-    if (!container) return;
+    if (!container || !messages) return;
+    
     container.innerHTML = '';
     
-    if (!messages) return;
-    
-    get(ref(db, `rooms/${roomId}/game/currentDrawer`)).then((drawerSnap) => {
-        const drawerId = drawerSnap.val();
+    Object.values(messages).sort((a, b) => a.timestamp - b.timestamp).forEach(msg => {
+        if (msg.isPrivate && msg.visibleTo && !msg.visibleTo.includes(currentUser.uid) && msg.uid !== currentUser.uid) {
+            return;
+        }
         
-        Object.values(messages).sort((a, b) => a.timestamp - b.timestamp).forEach(msg => {
-            // Filter private messages
-            if (msg.isPrivate && msg.visibleTo) {
-                const canSee = msg.visibleTo.includes(currentUser.uid) || msg.uid === currentUser.uid;
-                if (!canSee) return;
-            }
-            
-            const div = document.createElement('div');
-            div.className = 'chat-message';
-            
-            if (msg.type === 'system') {
-                div.classList.add('system');
-                div.textContent = msg.message;
-            } else {
-                if (msg.isPrivate) div.classList.add('private');
-                else div.classList.add('guess');
-                
-                div.innerHTML = `
-                    <div class="username">${msg.username} ${msg.isPrivate ? '🔒' : ''}</div>
-                    <div class="text">${msg.message}</div>
-                `;
-            }
-            
-            container.appendChild(div);
-        });
+        const div = document.createElement('div');
+        div.className = 'chat-message';
         
-        container.scrollTop = container.scrollHeight;
+        if (msg.type === 'system') {
+            div.classList.add('system');
+            div.textContent = msg.message;
+        } else {
+            div.classList.add(msg.isPrivate ? 'private' : 'guess');
+            div.innerHTML = `<div class="username">${msg.username} ${msg.isPrivate ? '🔒' : ''}</div><div class="text">${msg.message}</div>`;
+        }
+        container.appendChild(div);
     });
+    
+    container.scrollTop = container.scrollHeight;
 }
 
 async function checkGameStart() {
@@ -620,3 +615,11 @@ async function checkGameStart() {
         });
     }
 }
+
+window.exitGame = function() {
+    if (gameInterval) clearInterval(gameInterval);
+    if (roomId && currentUser) {
+        remove(ref(db, `rooms/${roomId}/players/${currentUser.uid}`));
+    }
+    location.reload();
+};
