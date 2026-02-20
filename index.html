@@ -83,6 +83,12 @@
             box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
         }
 
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
         /* Game Screen */
         .game-screen {
             display: none;
@@ -200,6 +206,8 @@
         #gameCanvas {
             cursor: crosshair;
             display: block;
+            width: 100%;
+            height: 100%;
         }
 
         /* Drawing Tools */
@@ -434,9 +442,33 @@
 
         .hidden { display: none !important; }
         .flex { display: flex !important; }
+
+        /* Error Display */
+        #errorDisplay {
+            display: none;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #e74c3c;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 9999;
+            max-width: 300px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        /* Loading State */
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
+    <!-- Error Display -->
+    <div id="errorDisplay"></div>
+
     <!-- Login Screen -->
     <div class="login-screen" id="loginScreen">
         <h1>🎨 Skribbl.io</h1>
@@ -450,7 +482,8 @@
             <input type="text" id="roomCode" placeholder="Enter room code (or create new)" maxlength="10">
         </div>
         
-        <button class="btn" onclick="joinGame()">Join Game</button>
+        <button class="btn" id="joinBtn" onclick="joinGame()">Join Game</button>
+        <p style="margin-top: 15px; font-size: 12px; color: #999;">Leave room code empty to create a new room</p>
     </div>
 
     <!-- Game Screen -->
@@ -486,12 +519,12 @@
                     <div class="color-palette" id="colorPalette"></div>
                     
                     <div class="brush-sizes">
-                        <button class="size-btn size-small" onclick="setBrushSize(3)"></button>
-                        <button class="size-btn size-medium active" onclick="setBrushSize(8)"></button>
-                        <button class="size-btn size-large" onclick="setBrushSize(15)"></button>
+                        <button class="size-btn size-small" onclick="setBrushSize(3, this)"></button>
+                        <button class="size-btn size-medium active" onclick="setBrushSize(8, this)"></button>
+                        <button class="size-btn size-large" onclick="setBrushSize(15, this)"></button>
                     </div>
 
-                    <button class="tool-btn" id="brushTool" onclick="setTool('brush')">✏️ Brush</button>
+                    <button class="tool-btn active" id="brushTool" onclick="setTool('brush')">✏️ Brush</button>
                     <button class="tool-btn" onclick="setTool('eraser')">🧹 Eraser</button>
                     <button class="tool-btn" onclick="clearCanvas()">🗑️ Clear</button>
                 </div>
@@ -520,5 +553,17 @@
     <!-- Firebase SDK -->
     <script type="module" src="firebase-config.js"></script>
     <script type="module" src="game.js"></script>
+    
+    <script>
+        window.onerror = function(msg, url, line) {
+            console.error("Error: " + msg + "\nURL: " + url + "\nLine: " + line);
+            const errDiv = document.getElementById('errorDisplay');
+            if (errDiv) {
+                errDiv.style.display = 'block';
+                errDiv.textContent = 'Error: ' + msg;
+                setTimeout(() => errDiv.style.display = 'none', 5000);
+            }
+        };
+    </script>
 </body>
 </html>
