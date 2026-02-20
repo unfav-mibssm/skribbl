@@ -31,18 +31,99 @@
         .canvas-section { flex: 1; position: relative; background: white; }
         #gameCanvas { width: 100%; height: 100%; display: block; touch-action: none; }
         
-        .tools-bar { display: none; position: absolute; bottom: 0; left: 0; right: 0; background: rgba(52, 73, 94, 0.95); padding: 10px; flex-direction: column; gap: 10px; }
-        .tools-row { display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .color-palette { display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; }
-        .color-btn { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
-        .color-btn.active { border-color: white; box-shadow: 0 0 0 2px #f39c12; }
-        .size-btn { background: white; border: none; border-radius: 50%; cursor: pointer; }
-        .size-btn.active { background: #f39c12; }
-        .size-small { width: 8px; height: 8px; }
-        .size-medium { width: 16px; height: 16px; }
-        .size-large { width: 24px; height: 24px; }
-        .tool-btn { padding: 8px 15px; background: #2c3e50; color: white; border: none; border-radius: 6px; cursor: pointer; }
+        /* Thin Toolbar */
+        .toolbar { 
+            display: none; 
+            position: absolute; 
+            bottom: 10px; 
+            left: 50%; 
+            transform: translateX(-50%); 
+            background: rgba(44, 62, 80, 0.95); 
+            padding: 8px 15px; 
+            border-radius: 25px; 
+            flex-direction: row; 
+            gap: 10px; 
+            align-items: center;
+            z-index: 100;
+        }
+        
+        .tool-btn { 
+            width: 36px; 
+            height: 36px; 
+            border: none; 
+            border-radius: 50%; 
+            background: #34495e; 
+            color: white; 
+            font-size: 18px; 
+            cursor: pointer; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
+            position: relative;
+        }
+        
         .tool-btn.active { background: #f39c12; }
+        
+        .color-preview { 
+            width: 24px; 
+            height: 24px; 
+            border-radius: 50%; 
+            background: #000; 
+            border: 2px solid white;
+        }
+        
+        /* Popups */
+        .popup { 
+            display: none; 
+            position: absolute; 
+            bottom: 50px; 
+            left: 50%; 
+            transform: translateX(-50%); 
+            background: white; 
+            padding: 15px; 
+            border-radius: 15px; 
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3); 
+            z-index: 200;
+        }
+        
+        .popup.active { display: flex; }
+        
+        .color-popup { 
+            flex-wrap: wrap; 
+            gap: 8px; 
+            width: 200px; 
+            justify-content: center;
+        }
+        
+        .color-option { 
+            width: 30px; 
+            height: 30px; 
+            border-radius: 50%; 
+            cursor: pointer; 
+            border: 2px solid transparent;
+        }
+        
+        .color-option.selected { border-color: #333; box-shadow: 0 0 0 2px white, 0 0 0 4px #333; }
+        
+        .size-popup { 
+            flex-direction: column; 
+            gap: 10px; 
+            align-items: center;
+        }
+        
+        .size-option { 
+            background: #ecf0f1; 
+            border: 2px solid transparent; 
+            border-radius: 10px; 
+            cursor: pointer; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
+        }
+        
+        .size-option.selected { border-color: #f39c12; background: #fff8e1; }
+        
+        .size-line { background: #333; border-radius: 2px; }
         
         .bottom-section { height: 40%; display: flex; background: #ecf0f1; }
         .players-panel { flex: 1; border-right: 1px solid #bdc3c7; display: flex; flex-direction: column; }
@@ -79,7 +160,7 @@
     <!-- Login -->
     <div class="screen active" id="loginScreen">
         <div class="login-box">
-            <h1>🎨 Skribbl1.io</h1>
+            <h1>🎨 Skribbl.io2</h1>
             <p>Draw and guess with friends!</p>
             <div class="input-group">
                 <input type="text" id="playerName" placeholder="Your name" maxlength="12">
@@ -112,19 +193,22 @@
                 <div>Waiting for drawer to choose word...</div>
             </div>
             
-            <div class="tools-bar" id="toolsBar">
-                <div class="tools-row">
-                    <div class="color-palette" id="colorPalette"></div>
-                </div>
-                <div class="tools-row">
-                    <button class="size-btn size-small" onclick="setBrushSize(3, this)"></button>
-                    <button class="size-btn size-medium active" onclick="setBrushSize(8, this)"></button>
-                    <button class="size-btn size-large" onclick="setBrushSize(15, this)"></button>
-                    <button class="tool-btn active" onclick="setTool('brush', this)">✏️ Brush</button>
-                    <button class="tool-btn" onclick="setTool('eraser', this)">🧹 Eraser</button>
-                    <button class="tool-btn" onclick="clearCanvas()">🗑️ Clear</button>
-                </div>
+            <!-- Toolbar -->
+            <div class="toolbar" id="toolbar">
+                <button class="tool-btn" onclick="toggleColorPopup()" title="Color">
+                    <div class="color-preview" id="colorPreview"></div>
+                </button>
+                <button class="tool-btn" onclick="toggleSizePopup()" title="Brush Size">⚫</button>
+                <button class="tool-btn active" onclick="setTool('brush', this)" title="Brush">✏️</button>
+                <button class="tool-btn" onclick="undoLast()" title="Undo">↩️</button>
+                <button class="tool-btn" onclick="clearCanvas()" title="Clear">🗑️</button>
             </div>
+            
+            <!-- Color Popup -->
+            <div class="popup color-popup" id="colorPopup"></div>
+            
+            <!-- Size Popup -->
+            <div class="popup size-popup" id="sizePopup"></div>
         </div>
 
         <div class="bottom-section">
@@ -180,14 +264,24 @@
         let canvas, ctx;
         let isDrawing = false;
         let brushColor = '#000000';
-        let brushSize = 8;
+        let brushSize = 3;
         let currentTool = 'brush';
         let gameTimer = null;
         let hasGuessed = false;
         let players = {};
         let gameState = null;
+        let drawingHistory = [];
+        let currentStroke = [];
         
         const colors = ['#000000','#ffffff','#ff0000','#00ff00','#0000ff','#ffff00','#ff00ff','#00ffff','#ffa500','#800080','#ffc0cb','#a52a2a','#808080','#90ee90','#ffb6c1','#dda0dd','#f0e68c','#e6e6fa','#ff6347','#40e0d0'];
+        
+        const sizes = [
+            { size: 2, width: 40, label: 'XS' },
+            { size: 5, width: 60, label: 'S' },
+            { size: 10, width: 80, label: 'M' },
+            { size: 20, width: 100, label: 'L' },
+            { size: 35, width: 120, label: 'XL' }
+        ];
         
         const wordBank = ['cat','dog','house','car','tree','sun','moon','star','flower','bird','fish','book','phone','computer','chair','table','door','window','ball','bike','train','plane','boat','apple','banana','pizza','cake','robot','dragon','unicorn','pirate','ninja','superhero','monster','alien','castle','mountain','beach','desert','forest','river','guitar','piano','violin','microphone','camera','clock','glasses','hat','shoe','glove','umbrella','backpack'];
         
@@ -199,12 +293,12 @@
             ctx = canvas.getContext('2d');
             ctx.fillStyle = 'white';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            setupColors();
             
-            // Sign in anonymously
+            setupColorPopup();
+            setupSizePopup();
+            
             auth.signInAnonymously().then((cred) => {
                 userId = cred.user.uid;
-                console.log('Connected:', userId);
             });
         });
         
@@ -220,24 +314,84 @@
             }
         }
         
-        function setupColors() {
-            const palette = document.getElementById('colorPalette');
+        function setupColorPopup() {
+            const popup = document.getElementById('colorPopup');
             colors.forEach(c => {
-                const btn = document.createElement('div');
-                btn.className = 'color-btn';
-                btn.style.background = c;
-                if(c === '#000000') btn.classList.add('active');
-                btn.onclick = () => { 
-                    brushColor = c; 
-                    currentTool = 'brush'; 
-                    document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active')); 
-                    btn.classList.add('active'); 
-                };
-                palette.appendChild(btn);
+                const div = document.createElement('div');
+                div.className = 'color-option';
+                div.style.background = c;
+                if(c === '#000000') div.classList.add('selected');
+                div.onclick = () => selectColor(c, div);
+                popup.appendChild(div);
+            });
+            document.getElementById('colorPreview').style.background = brushColor;
+        }
+        
+        function setupSizePopup() {
+            const popup = document.getElementById('sizePopup');
+            sizes.forEach((s, i) => {
+                const div = document.createElement('div');
+                div.className = 'size-option';
+                div.style.width = '140px';
+                div.style.height = '40px';
+                if(i === 1) div.classList.add('selected');
+                
+                const line = document.createElement('div');
+                line.className = 'size-line';
+                line.style.width = s.width + 'px';
+                line.style.height = s.size + 'px';
+                
+                div.appendChild(line);
+                div.onclick = () => selectSize(s.size, div);
+                popup.appendChild(div);
             });
         }
         
-        // START GAME
+        function toggleColorPopup() {
+            const popup = document.getElementById('colorPopup');
+            const sizePopup = document.getElementById('sizePopup');
+            sizePopup.classList.remove('active');
+            popup.classList.toggle('active');
+        }
+        
+        function toggleSizePopup() {
+            const popup = document.getElementById('sizePopup');
+            const colorPopup = document.getElementById('colorPopup');
+            colorPopup.classList.remove('active');
+            popup.classList.toggle('active');
+        }
+        
+        function selectColor(color, element) {
+            brushColor = color;
+            currentTool = 'brush';
+            document.querySelectorAll('.color-option').forEach(el => el.classList.remove('selected'));
+            element.classList.add('selected');
+            document.getElementById('colorPreview').style.background = color;
+            document.getElementById('colorPopup').classList.remove('active');
+            updateToolButtons();
+        }
+        
+        function selectSize(size, element) {
+            brushSize = size;
+            document.querySelectorAll('.size-option').forEach(el => el.classList.remove('selected'));
+            element.classList.add('selected');
+            document.getElementById('sizePopup').classList.remove('active');
+        }
+        
+        function setTool(tool, btn) {
+            currentTool = tool;
+            updateToolButtons();
+        }
+        
+        function updateToolButtons() {
+            document.querySelectorAll('.tool-btn').forEach((btn, index) => {
+                if(index === 2) { // Brush button
+                    if(currentTool === 'brush') btn.classList.add('active');
+                    else btn.classList.remove('active');
+                }
+            });
+        }
+        
         function startGame() {
             const nameInput = document.getElementById('playerName');
             const codeInput = document.getElementById('roomCode');
@@ -245,18 +399,11 @@
             myName = nameInput.value.trim();
             let code = codeInput.value.trim().toUpperCase();
             
-            if(!myName) { 
-                alert('Enter your name!'); 
-                return; 
-            }
-            
-            if(!code) {
-                code = Math.random().toString(36).substring(2, 8).toUpperCase();
-            }
+            if(!myName) { alert('Enter your name!'); return; }
+            if(!code) code = Math.random().toString(36).substring(2, 8).toUpperCase();
             
             roomId = code;
             
-            // Join room
             const updates = {};
             updates[`rooms/${roomId}/players/${userId}`] = {
                 name: myName,
@@ -266,30 +413,22 @@
             };
             
             db.ref().update(updates).then(() => {
-                // Setup disconnect
                 db.ref(`rooms/${roomId}/players/${userId}`).onDisconnect().remove();
-                
-                // Switch screens
                 document.getElementById('loginScreen').classList.remove('active');
                 document.getElementById('gameScreen').classList.add('active');
                 document.getElementById('roomCodeDisplay').textContent = roomId;
-                
                 initGame();
             });
         }
         
         function initGame() {
-            // Listen to players
             db.ref(`rooms/${roomId}/players`).on('value', (snap) => {
                 players = snap.val() || {};
                 updatePlayersList();
             });
             
-            // Listen to game state
             db.ref(`rooms/${roomId}/game`).on('value', (snap) => {
                 const data = snap.val();
-                
-                // If no game exists, create it (first player)
                 if(!data && Object.keys(players).length > 0) {
                     const firstPlayer = Object.keys(players)[0];
                     db.ref(`rooms/${roomId}/game`).set({
@@ -300,37 +439,44 @@
                     });
                     return;
                 }
-                
                 if(data) {
                     gameState = data;
                     handleGameUpdate(data);
                 }
             });
             
-            // Listen to drawing
             db.ref(`rooms/${roomId}/drawing`).on('value', (snap) => {
                 if(!isDrawer && snap.val() && ctx) {
                     const strokes = snap.val();
-                    Object.values(strokes).forEach(s => {
-                        if(s && typeof s.x0 === 'number') {
-                            ctx.beginPath();
-                            ctx.moveTo(s.x0, s.y0);
-                            ctx.lineTo(s.x1, s.y1);
-                            ctx.strokeStyle = s.color;
-                            ctx.lineWidth = s.size;
-                            ctx.lineCap = 'round';
-                            ctx.stroke();
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    Object.values(strokes).forEach(stroke => {
+                        if(Array.isArray(stroke)) {
+                            drawStroke(stroke);
                         }
                     });
                 }
             });
             
-            // Listen to chat
             db.ref(`rooms/${roomId}/chat`).limitToLast(50).on('value', (snap) => {
                 updateChat(snap.val());
             });
             
             setupDrawing();
+        }
+        
+        function drawStroke(stroke) {
+            if(!stroke || stroke.length < 2) return;
+            ctx.beginPath();
+            ctx.moveTo(stroke[0].x, stroke[0].y);
+            for(let i = 1; i < stroke.length; i++) {
+                ctx.lineTo(stroke[i].x, stroke[i].y);
+            }
+            ctx.strokeStyle = stroke[0].color;
+            ctx.lineWidth = stroke[0].size;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
         }
         
         function updatePlayersList() {
@@ -342,7 +488,6 @@
             
             Object.entries(players).forEach(([id, p]) => {
                 if(!p || !p.name) return;
-                
                 const div = document.createElement('div');
                 div.className = 'player-item';
                 if(id === drawerId) div.classList.add('drawer');
@@ -367,13 +512,13 @@
             document.getElementById('timer').textContent = data.timeLeft || 80;
             
             const wordDisplay = document.getElementById('wordDisplay');
-            const toolsBar = document.getElementById('toolsBar');
+            const toolbar = document.getElementById('toolbar');
             const waitingOverlay = document.getElementById('waitingOverlay');
             const drawerBadge = document.getElementById('drawerBadge');
             
             if(isDrawer) {
                 drawerBadge.style.display = 'block';
-                toolsBar.style.display = 'flex';
+                toolbar.style.display = 'flex';
                 waitingOverlay.style.display = 'none';
                 
                 if(data.status === 'choosing' && !data.word) {
@@ -383,9 +528,7 @@
                 }
             } else {
                 drawerBadge.style.display = 'none';
-                toolsBar.style.display = 'none';
-                
-                // Check if I guessed
+                toolbar.style.display = 'none';
                 const me = players[userId];
                 hasGuessed = me ? me.hasGuessed : false;
                 
@@ -398,7 +541,6 @@
                 }
             }
             
-            // Check if all guessed
             if(isDrawer && data.status === 'drawing' && data.word) {
                 checkAllGuessed();
             }
@@ -408,9 +550,7 @@
             const modal = document.getElementById('wordModal');
             const options = document.getElementById('wordOptions');
             options.innerHTML = '';
-            
             const choices = [...wordBank].sort(() => 0.5 - Math.random()).slice(0, 3);
-            
             choices.forEach(word => {
                 const btn = document.createElement('button');
                 btn.className = 'word-option';
@@ -418,53 +558,42 @@
                 btn.onclick = () => selectWord(word);
                 options.appendChild(btn);
             });
-            
             modal.style.display = 'flex';
         }
         
         function selectWord(word) {
             document.getElementById('wordModal').style.display = 'none';
-            
+            drawingHistory = [];
             db.ref(`rooms/${roomId}/game`).update({
                 word: word,
                 status: 'drawing',
                 timeLeft: 80
             });
-            
-            clearCanvas();
+            clearCanvasLocal();
             startTimer();
         }
         
         function startTimer() {
             if(gameTimer) clearInterval(gameTimer);
-            
             gameTimer = setInterval(() => {
-                const timeRef = db.ref(`rooms/${roomId}/game/timeLeft`);
-                timeRef.once('value').then((snap) => {
+                db.ref(`rooms/${roomId}/game/timeLeft`).once('value').then((snap) => {
                     let time = (snap.val() || 80) - 1;
-                    if(time <= 0) {
-                        endRound();
-                    } else {
-                        timeRef.set(time);
-                    }
+                    if(time <= 0) endRound();
+                    else db.ref(`rooms/${roomId}/game/timeLeft`).set(time);
                 });
             }, 1000);
         }
         
         function endRound() {
             if(gameTimer) clearInterval(gameTimer);
-            
             db.ref(`rooms/${roomId}/game`).once('value').then((snap) => {
                 const game = snap.val();
                 if(!game) return;
-                
                 const playerIds = Object.keys(players);
                 if(playerIds.length === 0) return;
-                
                 const idx = playerIds.indexOf(game.drawer);
                 const nextDrawer = playerIds[(idx + 1) % playerIds.length];
                 
-                // Reset guesses and update game
                 const updates = {};
                 playerIds.forEach(id => {
                     updates[`rooms/${roomId}/players/${id}/hasGuessed`] = false;
@@ -476,7 +605,8 @@
                 
                 db.ref().update(updates);
                 db.ref(`rooms/${roomId}/drawing`).remove();
-                clearCanvas();
+                drawingHistory = [];
+                clearCanvasLocal();
             });
         }
         
@@ -489,7 +619,6 @@
         
         function setupDrawing() {
             if(!canvas) return;
-            
             let lastX, lastY;
             
             function getPos(e) {
@@ -508,33 +637,40 @@
                 const pos = getPos(e);
                 lastX = pos.x;
                 lastY = pos.y;
+                currentStroke = [{x: lastX, y: lastY, color: brushColor, size: brushSize}];
+                
+                // Close popups when drawing
+                document.getElementById('colorPopup').classList.remove('active');
+                document.getElementById('sizePopup').classList.remove('active');
             }
             
             function move(e) {
                 if(!isDrawing || !isDrawer) return;
                 e.preventDefault();
-                
                 const pos = getPos(e);
                 
                 ctx.beginPath();
                 ctx.moveTo(lastX, lastY);
                 ctx.lineTo(pos.x, pos.y);
-                ctx.strokeStyle = currentTool === 'eraser' ? '#ffffff' : brushColor;
-                ctx.lineWidth = currentTool === 'eraser' ? brushSize * 2 : brushSize;
+                ctx.strokeStyle = brushColor;
+                ctx.lineWidth = brushSize;
                 ctx.lineCap = 'round';
                 ctx.stroke();
                 
-                db.ref(`rooms/${roomId}/drawing`).push({
-                    x0: lastX, y0: lastY, x1: pos.x, y1: pos.y,
-                    color: ctx.strokeStyle,
-                    size: ctx.lineWidth
-                });
-                
+                currentStroke.push({x: pos.x, y: pos.y});
                 lastX = pos.x;
                 lastY = pos.y;
             }
             
-            function stop() { isDrawing = false; }
+            function stop() {
+                if(!isDrawing) return;
+                isDrawing = false;
+                if(currentStroke.length > 0) {
+                    drawingHistory.push([...currentStroke]);
+                    saveDrawing();
+                }
+                currentStroke = [];
+            }
             
             canvas.addEventListener('mousedown', start);
             canvas.addEventListener('mousemove', move);
@@ -545,61 +681,60 @@
             canvas.addEventListener('touchend', stop);
         }
         
-        function setBrushSize(size, btn) {
-            brushSize = size;
-            document.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
+        function saveDrawing() {
+            db.ref(`rooms/${roomId}/drawing`).set(drawingHistory);
         }
         
-        function setTool(tool, btn) {
-            currentTool = tool;
-            document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
+        function undoLast() {
+            if(!isDrawer || drawingHistory.length === 0) return;
+            drawingHistory.pop();
+            redrawAll();
+            saveDrawing();
+        }
+        
+        function redrawAll() {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            drawingHistory.forEach(stroke => drawStroke(stroke));
         }
         
         function clearCanvas() {
+            if(!isDrawer) return;
+            drawingHistory = [];
+            clearCanvasLocal();
+            saveDrawing();
+        }
+        
+        function clearCanvasLocal() {
             if(!ctx) return;
             ctx.fillStyle = 'white';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            if(isDrawer) db.ref(`rooms/${roomId}/drawing`).remove();
         }
         
         function handleChat(e) {
             if(e.key !== 'Enter') return;
-            
             const input = document.getElementById('chatInput');
             const text = input.value.trim();
             if(!text) return;
+            if(isDrawer) { input.value = ''; return; }
             
-            if(isDrawer) { 
-                input.value = ''; 
-                return; 
-            }
-            
-            // Check correct guess
             if(!hasGuessed && currentWord && text.toLowerCase() === currentWord.toLowerCase()) {
-                // Update my score
                 const me = players[userId];
                 const newScore = (me ? me.score : 0) + Math.ceil((gameState ? gameState.timeLeft : 80) / 2) + 10;
-                
                 db.ref(`rooms/${roomId}/players/${userId}`).update({
                     score: newScore,
                     hasGuessed: true
                 });
-                
-                // System message
                 db.ref(`rooms/${roomId}/chat`).push({
                     name: 'System',
                     text: myName + ' guessed the word!',
                     type: 'system',
                     time: Date.now()
                 });
-                
                 input.value = '';
                 return;
             }
             
-            // Regular chat
             const chatData = {
                 name: myName,
                 text: text,
@@ -608,7 +743,6 @@
                 type: 'guess'
             };
             
-            // If already guessed, make it private
             if(hasGuessed) {
                 chatData.isPrivate = true;
                 const guessers = Object.entries(players)
@@ -625,16 +759,11 @@
             const container = document.getElementById('chatMessages');
             if(!container) return;
             container.innerHTML = '';
-            
             if(!messages) return;
             
             Object.values(messages).sort((a,b) => (a.time||0) - (b.time||0)).forEach(m => {
                 if(!m || !m.name) return;
-                
-                // Skip private messages not for me
-                if(m.isPrivate && m.visibleTo && !m.visibleTo.includes(userId) && m.uid !== userId) {
-                    return;
-                }
+                if(m.isPrivate && m.visibleTo && !m.visibleTo.includes(userId) && m.uid !== userId) return;
                 
                 const div = document.createElement('div');
                 div.className = 'chat-message ' + (m.type || 'guess');
@@ -645,10 +774,8 @@
                 } else {
                     div.innerHTML = '<strong>' + (m.name || 'Unknown') + (m.isPrivate ? ' 🔒' : '') + ':</strong> ' + (m.text || '');
                 }
-                
                 container.appendChild(div);
             });
-            
             container.scrollTop = container.scrollHeight;
         }
     </script>
