@@ -264,7 +264,7 @@ html, body {
 }
 
 /* ==========================================
-   GAME AREA - CRITICAL FIX: 40% TOP, 60% BOTTOM
+   GAME AREA - FIXED: 45% TOP, 55% BOTTOM
    ========================================== */
 .game-area {
     display: flex;
@@ -275,14 +275,16 @@ html, body {
     gap: 8px;
 }
 
-/* Canvas Section - TOP 40% */
+/* Canvas Section - TOP 45% - FULL WIDTH NO BORDERS */
 .canvas-section {
-    height: 40%; /* FIXED: Top 40% */
+    height: 45%; /* CHANGED: 45% */
     min-height: 0;
     position: relative;
     background: #e8e8e8;
     border-radius: var(--radius);
     overflow: hidden;
+    width: 100%;
+    padding: 0; /* NO PADDING - FULL WIDTH */
 }
 
 .canvas-wrapper {
@@ -290,9 +292,9 @@ html, body {
     height: 100%;
     position: relative;
     display: flex;
-    align-items: flex-start; /* Align to top */
+    align-items: center;
     justify-content: center;
-    padding-top: 10px; /* Small top padding */
+    padding: 0; /* NO PADDING */
 }
 
 #gameCanvas {
@@ -300,6 +302,8 @@ html, body {
     box-shadow: 0 4px 15px rgba(0,0,0,0.2);
     cursor: crosshair;
     touch-action: none;
+    width: 100%;
+    height: 100%;
     max-width: 100%;
     max-height: 100%;
 }
@@ -582,10 +586,10 @@ html, body {
 }
 
 /* ==========================================
-   BOTTOM SECTION - 60% HEIGHT, SIDE BY SIDE
+   BOTTOM SECTION - 55% HEIGHT, SIDE BY SIDE
    ========================================== */
 .bottom-section {
-    height: 60%; /* FIXED: Bottom 60% */
+    height: 55%; /* CHANGED: 55% */
     display: flex;
     background: white;
     border-radius: var(--radius);
@@ -645,13 +649,13 @@ html, body {
 
 .player-item {
     background: white;
-    padding: 12px;
-    margin-bottom: 8px;
+    padding: 10px 8px; /* REDUCED PADDING */
+    margin-bottom: 6px; /* REDUCED MARGIN */
     border-radius: var(--radius);
     display: flex;
     align-items: center;
-    gap: 10px;
-    font-size: 14px;
+    gap: 8px; /* REDUCED GAP */
+    font-size: 12px; /* REDUCED FONT SIZE */
     border-left: 3px solid transparent;
     box-shadow: 0 2px 5px rgba(0,0,0,0.08);
     transition: all 0.2s;
@@ -672,8 +676,8 @@ html, body {
 }
 
 .player-avatar {
-    width: 38px;
-    height: 38px;
+    width: 32px; /* REDUCED SIZE */
+    height: 32px; /* REDUCED SIZE */
     border-radius: 50%;
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
     color: white;
@@ -681,7 +685,7 @@ html, body {
     align-items: center;
     justify-content: center;
     font-weight: 700;
-    font-size: 16px;
+    font-size: 14px; /* REDUCED FONT SIZE */
     flex-shrink: 0;
 }
 
@@ -695,13 +699,13 @@ html, body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 14px;
+    font-size: 12px; /* REDUCED FONT SIZE */
 }
 
 .player-score {
     color: var(--primary);
     font-weight: 800;
-    font-size: 16px;
+    font-size: 14px; /* REDUCED FONT SIZE */
 }
 
 /* Chat */
@@ -761,22 +765,24 @@ html, body {
 }
 
 .chat-input-area {
-    padding: 12px;
+    padding: 10px; /* REDUCED PADDING */
     border-top: 1px solid #e0e0e0;
     display: flex;
-    gap: 10px;
+    gap: 8px; /* REDUCED GAP */
     background: white;
     flex-shrink: 0;
+    min-height: 50px; /* ENSURE MINIMUM HEIGHT */
 }
 
 .chat-input-area input {
     flex: 1;
-    padding: 12px 16px;
+    padding: 10px 14px; /* REDUCED PADDING */
     border: 1px solid #ddd;
     border-radius: 25px;
-    font-size: 15px;
+    font-size: 14px; /* REDUCED FONT SIZE */
     font-family: 'Nunito', sans-serif;
     transition: border-color 0.2s;
+    min-height: 40px; /* ENSURE MINIMUM HEIGHT */
 }
 
 .chat-input-area input:focus {
@@ -785,15 +791,16 @@ html, body {
 }
 
 .send-btn {
-    width: 44px;
-    height: 44px;
+    width: 40px; /* REDUCED SIZE */
+    height: 40px; /* REDUCED SIZE */
     border: none;
     border-radius: 50%;
     background: var(--primary);
     color: white;
     cursor: pointer;
-    font-size: 16px;
+    font-size: 14px; /* REDUCED FONT SIZE */
     transition: all 0.2s;
+    flex-shrink: 0;
 }
 
 .send-btn:hover {
@@ -1144,14 +1151,14 @@ html, body {
     font-weight: 600;
 }
 
-/* Mobile */
+/* Mobile - FIXED FOR BETTER VISIBILITY */
 @media (max-width: 768px) {
     .canvas-section {
-        height: 35%; /* Slightly smaller on mobile */
+        height: 45%; /* KEEP 45% */
     }
     
     .bottom-section {
-        height: 65%;
+        height: 55%; /* KEEP 55% */
     }
     
     .word-display {
@@ -1159,19 +1166,60 @@ html, body {
         letter-spacing: 4px;
     }
     
+    /* FIXED: Better mobile layout */
     .player-item {
-        padding: 10px;
-        font-size: 13px;
+        padding: 8px 6px;
+        font-size: 11px;
+        gap: 6px;
     }
     
     .player-avatar {
-        width: 34px;
-        height: 34px;
-        font-size: 14px;
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
+    }
+    
+    .player-name {
+        font-size: 11px;
+    }
+    
+    .player-score {
+        font-size: 12px;
     }
     
     .chat-message {
-        font-size: 13px;
+        font-size: 12px;
         padding: 8px 10px;
+    }
+    
+    /* FIXED: Ensure chat input is visible */
+    .chat-input-area {
+        padding: 8px;
+        gap: 6px;
+        min-height: 45px;
+    }
+    
+    .chat-input-area input {
+        padding: 8px 12px;
+        font-size: 13px;
+        min-height: 36px;
+    }
+    
+    .send-btn {
+        width: 36px;
+        height: 36px;
+        font-size: 12px;
+    }
+    
+    /* FIXED: Toolbar smaller on mobile */
+    .tool-btn {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+    }
+    
+    .toolbar {
+        padding: 8px 12px;
+        gap: 6px;
     }
 }
