@@ -3,18 +3,54 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Skribbl.io</title>
+    <meta name="theme-color" content="#667eea">
+    <title>SkribbDraw & Guess</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
+    <!-- Background Animation -->
+    <div class="bg-animation" id="bgAnimation"></div>
+
     <!-- Login Screen -->
     <div id="loginScreen">
-        <div class="login-box">
-            <h1>🎨 Skribbl.io1</h1>
-            <p>Draw, guess, and have fun!</p>
-            <input type="text" id="playerName" placeholder="Enter your name" maxlength="12">
-            <input type="text" id="roomCode" placeholder="Room code (leave empty to create)" maxlength="8">
-            <button onclick="joinGame()">Play Now</button>
+        <div class="login-container">
+            <div class="logo-section">
+                <div class="logo-icon">🎨</div>
+                <h1>Skribbl.io1</h1>
+                <p class="tagline">Draw, guess, and have fun with friends!</p>
+            </div>
+            
+            <div class="login-box">
+                <div class="input-group">
+                    <label for="playerName">Your Name</label>
+                    <input type="text" id="playerName" placeholder="Enter your name" maxlength="12" autocomplete="off">
+                    <span class="input-hint">Max 12 characters</span>
+                </div>
+                
+                <div class="input-group">
+                    <label for="roomCode">Room Code</label>
+                    <input type="text" id="roomCode" placeholder="Leave empty to create new room" maxlength="8" autocomplete="off">
+                    <span class="input-hint">Join existing room or create new</span>
+                </div>
+                
+                <button onclick="joinGame()" class="play-btn">
+                    <span class="btn-text">Play Now</span>
+                    <span class="btn-icon">🚀</span>
+                </button>
+                
+                <div class="login-info">
+                    <div class="feature-list">
+                        <div class="feature-item">✏️ Real-time drawing</div>
+                        <div class="feature-item">💬 Live chat</div>
+                        <div class="feature-item">🏆 Score points</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="footer-text">Made with ❤️ | Free to play</div>
         </div>
     </div>
 
@@ -23,62 +59,150 @@
         <!-- Top Bar -->
         <div class="top-bar">
             <div class="game-info">
-                <span class="round-info" id="roundInfo">Round 1/10</span>
-                <span class="timer" id="timer">80</span>
-                <span class="word-display" id="wordDisplay">Waiting...</span>
+                <div class="info-badge">
+                    <span class="round-info" id="roundInfo">Round 1/10</span>
+                </div>
+                <div class="timer-container">
+                    <svg class="timer-svg" viewBox="0 0 36 36">
+                        <path class="timer-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#444" stroke-width="3"/>
+                        <path id="timerCircle" class="timer-progress" stroke-dasharray="100, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#e74c3c" stroke-width="3"/>
+                    </svg>
+                    <span class="timer" id="timer">80</span>
+                </div>
+                <div class="word-container">
+                    <span class="word-display" id="wordDisplay">Waiting...</span>
+                    <span class="word-hint" id="wordHint"></span>
+                </div>
             </div>
-            <div>
-                <span id="roomCodeDisplay"></span>
-                <button onclick="exitGame()" class="exit-btn">Exit</button>
-            </div>
-        </div>
-
-        <!-- Canvas Section (60%) -->
-        <div class="canvas-section">
-            <canvas id="gameCanvas"></canvas>
-            
-            <div class="drawer-badge" id="drawerBadge">✏️ YOU ARE DRAWING</div>
-            
-            <div class="waiting-overlay" id="waitingOverlay">
-                <div class="spinner"></div>
-                <div>Waiting for drawer to choose a word...</div>
-            </div>
-            
-            <!-- Toolbar for Drawer -->
-            <div class="toolbar" id="toolbar">
-                <button class="tool-btn" id="colorBtn" title="Color">
-                    <div class="color-preview" id="colorPreview"></div>
+            <div class="top-actions">
+                <div class="room-info">
+                    <span class="room-label">ROOM</span>
+                    <span id="roomCodeDisplay" class="room-code">----</span>
+                    <button onclick="copyRoomCode()" class="copy-btn" title="Copy room code">📋</button>
+                </div>
+                <button onclick="exitGame()" class="exit-btn">
+                    <span>Exit</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                        <polyline points="16 17 21 12 16 7"></polyline>
+                        <line x1="21" y1="12" x2="9" y2="12"></line>
+                    </svg>
                 </button>
-                <button class="tool-btn" id="sizeBtn" title="Size">⚫</button>
-                <button class="tool-btn active" id="brushBtn" title="Brush">✏️</button>
-                <button class="tool-btn" id="undoBtn" title="Undo">↩️</button>
-                <button class="tool-btn" id="clearBtn" title="Clear">🗑️</button>
             </div>
-            
-            <!-- Popup Overlay -->
-            <div class="popup-overlay" id="popupOverlay"></div>
-            
-            <!-- Color Popup -->
-            <div class="popup color-popup" id="colorPopup"></div>
-            
-            <!-- Size Popup -->
-            <div class="popup size-popup" id="sizePopup"></div>
         </div>
 
-        <!-- Bottom Section (40%) -->
-        <div class="bottom-section">
-            <!-- Players Panel -->
-            <div class="players-panel">
-                <div class="panel-header">👥 PLAYERS</div>
-                <div class="players-list" id="playersList"></div>
+        <!-- Main Game Area -->
+        <div class="game-area">
+            <!-- Canvas Section -->
+            <div class="canvas-section">
+                <canvas id="gameCanvas"></canvas>
+                
+                <!-- Drawer Badge -->
+                <div class="drawer-badge" id="drawerBadge">
+                    <span class="pencil-anim">✏️</span>
+                    <span>YOU ARE DRAWING</span>
+                </div>
+                
+                <!-- Waiting Overlay -->
+                <div class="waiting-overlay" id="waitingOverlay">
+                    <div class="waiting-content">
+                        <div class="spinner">
+                            <div class="spinner-ring"></div>
+                            <div class="spinner-ring"></div>
+                            <div class="spinner-ring"></div>
+                        </div>
+                        <div class="waiting-text">Waiting for drawer to choose a word...</div>
+                        <div class="waiting-subtext">Get ready to guess!</div>
+                    </div>
+                </div>
+                
+                <!-- Round End Overlay -->
+                <div class="round-overlay" id="roundOverlay">
+                    <div class="round-content">
+                        <div class="round-result" id="roundResult">Word was: <span id="revealedWord">---</span></div>
+                        <div class="round-scores" id="roundScores"></div>
+                    </div>
+                </div>
+
+                <!-- Toolbar for Drawer -->
+                <div class="toolbar" id="toolbar">
+                    <div class="tool-group">
+                        <button class="tool-btn" id="colorBtn" title="Choose Color">
+                            <div class="color-preview" id="colorPreview"></div>
+                        </button>
+                        <button class="tool-btn" id="sizeBtn" title="Brush Size">
+                            <div class="size-icon" id="sizeIcon">⚫</div>
+                        </button>
+                    </div>
+                    
+                    <div class="tool-divider"></div>
+                    
+                    <div class="tool-group">
+                        <button class="tool-btn active" id="brushBtn" title="Brush Tool">✏️</button>
+                        <button class="tool-btn" id="eraserBtn" title="Eraser">🧼</button>
+                    </div>
+                    
+                    <div class="tool-divider"></div>
+                    
+                    <div class="tool-group">
+                        <button class="tool-btn" id="undoBtn" title="Undo Last Stroke">↩️</button>
+                        <button class="tool-btn danger" id="clearBtn" title="Clear Canvas">🗑️</button>
+                    </div>
+                </div>
+                
+                <!-- Popup Overlay -->
+                <div class="popup-overlay" id="popupOverlay"></div>
+                
+                <!-- Color Popup -->
+                <div class="popup color-popup" id="colorPopup">
+                    <div class="popup-header">
+                        <span>Colors</span>
+                        <button class="close-popup" onclick="closePopups()">×</button>
+                    </div>
+                    <div class="color-grid" id="colorGrid"></div>
+                    <div class="color-custom">
+                        <input type="color" id="customColor" value="#000000">
+                        <label for="customColor">Custom Color</label>
+                    </div>
+                </div>
+                
+                <!-- Size Popup -->
+                <div class="popup size-popup" id="sizePopup">
+                    <div class="popup-header">
+                        <span>Brush Size</span>
+                        <button class="close-popup" onclick="closePopups()">×</button>
+                    </div>
+                    <div class="size-options" id="sizeOptions"></div>
+                </div>
             </div>
-            
-            <!-- Chat Panel -->
-            <div class="chat-panel">
-                <div class="panel-header">💬 CHAT</div>
-                <div class="chat-messages" id="chatMessages"></div>
-                <div class="chat-input-area">
-                    <input type="text" class="chat-input" id="chatInput" placeholder="Type your guess here..." onkeypress="handleChat(event)">
+
+            <!-- Side Panel (Players + Chat) -->
+            <div class="side-panel">
+                <!-- Players Panel -->
+                <div class="players-panel">
+                    <div class="panel-header">
+                        <span class="header-icon">👥</span>
+                        <span>PLAYERS</span>
+                        <span class="player-count" id="playerCount">0/8</span>
+                    </div>
+                    <div class="players-list" id="playersList"></div>
+                </div>
+                
+                <!-- Chat Panel -->
+                <div class="chat-panel">
+                    <div class="panel-header">
+                        <span class="header-icon">💬</span>
+                        <span>CHAT</span>
+                        <button class="clear-chat" onclick="clearChat()" title="Clear chat">🗑️</button>
+                    </div>
+                    <div class="chat-messages" id="chatMessages"></div>
+                    <div class="chat-input-area">
+                        <div class="input-wrapper">
+                            <input type="text" class="chat-input" id="chatInput" placeholder="Type your guess here..." maxlength="50" autocomplete="off">
+                            <button class="send-btn" onclick="sendMessage()">➤</button>
+                        </div>
+                        <div class="chat-hint">Press Enter to send</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -87,24 +211,46 @@
     <!-- Word Selection Modal -->
     <div class="modal-overlay" id="wordModal">
         <div class="word-selection">
-            <h2>Choose a word to draw:</h2>
-            <div id="wordOptions"></div>
+            <div class="modal-header">
+                <h2>Choose a word to draw</h2>
+                <div class="modal-timer" id="wordTimer">15</div>
+            </div>
+            <div class="word-difficulty-hint">Easy = 1pt | Medium = 2pts | Hard = 3pts</div>
+            <div class="word-options" id="wordOptions"></div>
         </div>
     </div>
 
     <!-- Game Over Modal -->
     <div class="game-over-modal" id="gameOverModal">
         <div class="game-over-content">
-            <h1>🎉 Game Over!</h1>
-            <p>Final Scores</p>
+            <div class="trophy">🏆</div>
+            <h1>Game Over!</h1>
+            <p class="game-over-subtitle">Final Standings</p>
             <div class="final-scores" id="finalScores"></div>
-            <button onclick="location.reload()" class="play-again-btn">Play Again</button>
+            <div class="game-over-actions">
+                <button onclick="playAgain()" class="play-again-btn primary">
+                    <span>🔄 Play Again</span>
+                </button>
+                <button onclick="location.reload()" class="play-again-btn secondary">
+                    <span>🏠 Main Menu</span>
+                </button>
+            </div>
         </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Connecting...</div>
     </div>
 
     <!-- Scripts -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+    <script src="firebase-config.js"></script>
     <script src="words.js"></script>
     <script src="game.js"></script>
 </body>
