@@ -1,5 +1,5 @@
 // ==========================================
-// GAME ENGINE - FIXED START & LAYOUT
+// GAME ENGINE - FIXED START & 4:3 CANVAS
 // ==========================================
 
 let gameState = {
@@ -15,7 +15,8 @@ let gameState = {
     isGameActive: false,
     allGuessed: false,
     lastPlayerCount: 0,
-    leftPlayerName: null
+    leftPlayerName: null,
+    gameStarted: false
 };
 
 let canvas, ctx;
@@ -26,6 +27,7 @@ let currentSize = 4;
 let drawingHistory = [];
 let lastDrawTime = 0;
 let remoteStroke = null;
+let timerInterval = null;
 
 let roomRef, playersRef, chatRef, drawingRef, gameRef;
 
@@ -77,7 +79,7 @@ function initCanvas() {
     canvas.addEventListener('mouseup', endDraw);
     canvas.addEventListener('mouseleave', endDraw);
     
-    // Touch - CRITICAL FIX
+    // Touch
     canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
     canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
     canvas.addEventListener('touchend', endDraw, { passive: false });
@@ -99,17 +101,39 @@ function restoreCanvas() {
     }
 }
 
+// 4:3 ASPECT RATIO - CRITICAL FIX
 function resizeCanvas() {
     const wrapper = document.querySelector('.canvas-wrapper');
-    canvas.width = wrapper.clientWidth;
-    canvas.height = wrapper.clientHeight;
+    const containerWidth = wrapper.clientWidth;
+    const containerHeight = wrapper.clientHeight;
+    
+    // Maintain 4:3 ratio
+    let width = containerWidth;
+    let height = width * 0.75; // 4:3 = 1:0.75
+    
+    // If height exceeds container, scale down
+    if (height > containerHeight) {
+        height = containerHeight;
+        width = height * 1.333; // 4/3
+    }
+    
+    // Center the canvas
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+    canvas.width = width;
+    canvas.height = height;
+    
+    // Center in wrapper
+    canvas.style.position = 'absolute';
+    canvas.style.left = '50%';
+    canvas.style.top = '50%';
+    canvas.style.transform = 'translate(-50%, -50%)';
 }
 
 function clearCanvas() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     drawingHistory = [];
-    undoStack = [];
 }
 
 function initColorPicker() {
@@ -192,7 +216,7 @@ function closePopups() {
 }
 
 // ==========================================
-// DRAWING - FIXED
+// DRAWING
 // ==========================================
 
 function getPos(e) {
@@ -207,7 +231,14 @@ function getPos(e) {
         y = e.clientY - rect.top;
     }
     
-    return { x, y };
+    // Scale to canvas internal resolution
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    return { 
+        x: (x - (rect.width - canvas.width/scaleX)/2) * scaleX,
+        y: (y - (rect.height - canvas.height/scaleY)/2) * scaleY
+    };
 }
 
 function startDraw(e) {
@@ -215,6 +246,9 @@ function startDraw(e) {
     e.preventDefault();
     
     const pos = getPos(e);
+    
+    // Keep in bounds
+    if (pos.x < 0 || pos.x > canvas.width || pos.y < 0 || pos.y > canvas.height) return;
     
     if (currentTool === 'bucket') {
         floodFill(Math.floor(pos.x), Math.floor(pos.y), currentColor);
@@ -250,6 +284,9 @@ function draw(e) {
     lastDrawTime = now;
     
     const pos = getPos(e);
+    
+    // Keep in bounds
+    if (pos.x < 0 || pos.x > canvas.width || pos.y < 0 || pos.y > canvas.height) return;
     
     ctx.lineTo(pos.x, pos.y);
     ctx.stroke();
@@ -354,7 +391,7 @@ function hexToRgb(hex) {
 
 function undo() {
     if (!gameState.isDrawer || drawingHistory.length === 0) return;
-    undoStack.push(drawingHistory.pop());
+    drawingHistory.pop();
     redraw();
     sendDrawData('undo');
 }
@@ -489,7 +526,7 @@ function createRoom(code) {
     drawingRef = roomRef.child('drawing');
     gameRef = roomRef.child('game');
     
-    // Initialize room - CRITICAL FIX
+    // CRITICAL FIX: Set room data and wait for completion
     roomRef.set({
         created: Date.now(),
         state: 'waiting',
@@ -499,10 +536,11 @@ function createRoom(code) {
         word: null,
         allGuessed: false
     }).then(() => {
+        console.log('Room created, adding player...');
         addPlayer();
-        setupListeners();
-        showGame(code);
-        checkStart();
+    }).catch(err => {
+        console.error('Error creating room:', err);
+        showToast('Error creating room', 'error');
     });
 }
 
@@ -519,30 +557,38 @@ function joinRoom(code) {
             return;
         }
         
+        const game = snap.val();
+        
         playersRef = roomRef.child('players');
         chatRef = roomRef.child('chat');
         drawingRef = roomRef.child('drawing');
         gameRef = roomRef.child('game');
         
         addPlayer();
-        setupListeners();
-        showGame(code);
     });
 }
 
 function addPlayer() {
+    console.log('Adding player:', gameState.playerName);
+    
     playersRef.child(gameState.playerId).set({
         name: gameState.playerName,
         score: 0,
         joined: Date.now(),
         hasGuessed: false
+    }).then(() => {
+        console.log('Player added, setting up listeners...');
+        playersRef.child(gameState.playerId).onDisconnect().remove();
+        setupListeners();
+        showGame(gameState.roomCode);
+        
+        // CRITICAL FIX: Check if we should start game immediately
+        checkStartGame();
     });
-    
-    playersRef.child(gameState.playerId).onDisconnect().remove();
 }
 
 function setupListeners() {
-    // Players - with leave detection
+    // Players
     playersRef.on('value', (snap) => {
         const previousPlayers = { ...gameState.players };
         gameState.players = snap.val() || {};
@@ -557,7 +603,6 @@ function setupListeners() {
                 gameState.leftPlayerName = previousPlayers[leftId].name;
                 showToast(`${gameState.leftPlayerName} left the game`, 'info');
                 
-                // Check if drawer left
                 gameRef.once('value', (gameSnap) => {
                     const game = gameSnap.val();
                     if (game && game.drawer === leftId) {
@@ -569,6 +614,11 @@ function setupListeners() {
         
         gameState.lastPlayerCount = currentIds.length;
         updatePlayerList();
+        
+        // CRITICAL FIX: Check start on every player change
+        if (!gameState.gameStarted) {
+            checkStartGame();
+        }
     });
     
     // Chat
@@ -582,10 +632,37 @@ function setupListeners() {
     // Game state
     gameRef.on('value', (snap) => {
         const game = snap.val();
-        if (game) handleGameChange(game);
+        if (game) {
+            handleGameChange(game);
+            // Mark as started if not waiting
+            if (game.state !== 'waiting') {
+                gameState.gameStarted = true;
+            }
+        }
     });
     
     listenDrawing();
+}
+
+// CRITICAL FIX: Proper game start check
+function checkStartGame() {
+    console.log('Checking game start...', Object.keys(gameState.players).length, 'players');
+    
+    const playerCount = Object.keys(gameState.players).length;
+    
+    if (playerCount >= 2 && !gameState.gameStarted) {
+        console.log('Starting game!');
+        
+        const firstPlayer = Object.keys(gameState.players)[0];
+        
+        gameRef.update({
+            state: 'choosing',
+            drawer: firstPlayer
+        }).then(() => {
+            gameState.gameStarted = true;
+            console.log('Game started with drawer:', firstPlayer);
+        });
+    }
 }
 
 function shouldShowMessage(msg) {
@@ -673,7 +750,7 @@ function handleGameChange(game) {
             });
         }
         
-        if (!gameState.timerInterval) {
+        if (!timerInterval) {
             startTimer();
         }
     } else if (game.state === 'round_end') {
@@ -743,14 +820,14 @@ function selectWord(word) {
 }
 
 function startTimer() {
-    if (gameState.timerInterval) clearInterval(gameState.timerInterval);
+    if (timerInterval) clearInterval(timerInterval);
     
-    gameState.timerInterval = setInterval(() => {
+    timerInterval = setInterval(() => {
         gameRef.once('value', (snap) => {
             const game = snap.val();
             if (!game || game.state !== 'drawing') {
-                clearInterval(gameState.timerInterval);
-                gameState.timerInterval = null;
+                clearInterval(timerInterval);
+                timerInterval = null;
                 return;
             }
             
@@ -760,8 +837,8 @@ function startTimer() {
             gameRef.update({ timer: remaining });
             
             if (remaining <= 0 || game.allGuessed) {
-                clearInterval(gameState.timerInterval);
-                gameState.timerInterval = null;
+                clearInterval(timerInterval);
+                timerInterval = null;
                 endRound();
             }
         });
@@ -990,34 +1067,14 @@ function showGame(code) {
     document.getElementById('gameScreen').style.display = 'flex';
     document.getElementById('roomCodeDisplay').textContent = code;
     
+    // Resize canvas after showing
+    setTimeout(resizeCanvas, 100);
+    
     sendChat('system', `${gameState.playerName} joined!`);
 }
 
-function checkStart() {
-    // Check immediately and on changes
-    const check = () => {
-        gameRef.once('value', (snap) => {
-            const game = snap.val();
-            const playerCount = Object.keys(gameState.players).length;
-            
-            if (playerCount >= 2 && game?.state === 'waiting') {
-                const firstPlayer = Object.keys(gameState.players)[0];
-                gameRef.update({
-                    state: 'choosing',
-                    drawer: firstPlayer
-                });
-            }
-        });
-    };
-    
-    // Check now
-    check();
-    
-    // Check when players change
-    playersRef.on('value', check);
-}
-
 function playAgain() {
+    gameState.gameStarted = false;
     const playerIds = Object.keys(gameState.players);
     gameRef.update({
         state: 'choosing',
@@ -1056,4 +1113,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v4.0 loaded!');
+console.log('🎮 Game engine v5.0 loaded!');
