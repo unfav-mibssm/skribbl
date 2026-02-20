@@ -13,7 +13,7 @@
         <div class="login-container">
             <div class="logo-section">
                 <div class="logo-icon">🎨</div>
-                <h1>Skribbl.io7</h1>
+                <h1>Skribbl.io8</h1>
                 <p class="tagline">Draw, guess, and have fun!</p>
             </div>
             
@@ -142,7 +142,6 @@
                 <div class="chat-panel">
                     <div class="panel-header">
                         <span>💬 Chat</span>
-                        <button onclick="clearChat()" class="clear-btn">🗑️</button>
                     </div>
                     <div class="chat-messages" id="chatMessages"></div>
                     <div class="chat-input-area">
@@ -196,6 +195,23 @@
         <div class="loading-spinner"></div>
         <div class="loading-text">Connecting...</div>
     </div>
+
+    <!-- Audio Elements -->
+    <audio id="soundJoin" preload="auto">
+        <source src="https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="soundCorrect" preload="auto">
+        <source src="https://assets.mixkit.co/active_storage/sfx/2003/2003-preview.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="soundRoundEnd" preload="auto">
+        <source src="https://assets.mixkit.co/active_storage/sfx/2005/2005-preview.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="soundLeave" preload="auto">
+        <source src="https://assets.mixkit.co/active_storage/sfx/2006/2006-preview.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="soundEnter" preload="auto">
+        <source src="https://assets.mixkit.co/active_storage/sfx/2007/2007-preview.mp3" type="audio/mpeg">
+    </audio>
 
     <!-- Scripts -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
