@@ -1,6 +1,5 @@
 // ==========================================
-// SKRIBBL.IO GAME ENGINE
-// Complete game logic with Firebase
+// SKRIBBL.IO GAME ENGINE - FIXED VERSION
 // ==========================================
 
 // Game State
@@ -14,7 +13,8 @@ let gameState = {
     maxRounds: 10,
     timer: 80,
     players: {},
-    isGameActive: false
+    isGameActive: false,
+    allGuessed: false
 };
 
 // Canvas Variables
@@ -25,6 +25,7 @@ let currentColor = '#000000';
 let currentSize = 4;
 let drawingHistory = [];
 let undoStack = [];
+let lastDrawTime = 0;
 
 // Firebase References
 let roomRef, playersRef, chatRef, drawingRef, gameRef;
@@ -57,45 +58,64 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeSizePicker();
     initializeToolbar();
     
-    // Enter key for chat
     document.getElementById('chatInput').addEventListener('keypress', handleChat);
-    
-    // Close popups when clicking overlay
     document.getElementById('popupOverlay').addEventListener('click', closePopups);
+    
+    // Prevent zoom on double tap for mobile
+    document.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        e.target.click();
+    }, { passive: false });
 });
 
 function initializeCanvas() {
     canvas = document.getElementById('gameCanvas');
     ctx = canvas.getContext('2d');
     
-    // Set canvas size
     resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('resize', () => {
+        saveCanvasState();
+        resizeCanvas();
+        restoreCanvasState();
+    });
     
-    // Drawing events
+    // Mouse events
     canvas.addEventListener('mousedown', startDrawing);
     canvas.addEventListener('mousemove', draw);
     canvas.addEventListener('mouseup', stopDrawing);
     canvas.addEventListener('mouseout', stopDrawing);
     
-    // Touch events for mobile
-    canvas.addEventListener('touchstart', handleTouch);
-    canvas.addEventListener('touchmove', handleTouch);
+    // Touch events - passive false to prevent scroll
+    canvas.addEventListener('touchstart', handleTouch, { passive: false });
+    canvas.addEventListener('touchmove', handleTouch, { passive: false });
     canvas.addEventListener('touchend', stopDrawing);
     
-    // Fill white background
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    clearCanvasLocal();
+}
+
+let canvasBackup = null;
+
+function saveCanvasState() {
+    canvasBackup = ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+function restoreCanvasState() {
+    if (canvasBackup) {
+        ctx.putImageData(canvasBackup, 0, 0);
+    }
 }
 
 function resizeCanvas() {
     const container = canvas.parentElement;
     canvas.width = container.clientWidth;
     canvas.height = container.clientHeight;
-    
-    // Restore white background
+}
+
+function clearCanvasLocal() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawingHistory = [];
+    undoStack = [];
 }
 
 function initializeColorPicker() {
@@ -123,7 +143,6 @@ function initializeColorPicker() {
         colorGrid.appendChild(colorDiv);
     });
     
-    // Custom color picker
     document.getElementById('customColor').addEventListener('change', (e) => {
         currentColor = e.target.value;
         colorPreview.style.backgroundColor = currentColor;
@@ -160,7 +179,6 @@ function initializeSizePicker() {
             sizeDiv.classList.add('selected');
             currentSize = brush.size;
             
-            // Update size icon
             const iconSize = Math.min(brush.size * 3, 20);
             sizeIcon.style.fontSize = iconSize + 'px';
             
@@ -172,43 +190,41 @@ function initializeSizePicker() {
 }
 
 function initializeToolbar() {
-    // Color button
-    document.getElementById('colorBtn').addEventListener('click', () => {
-        togglePopup('colorPopup');
-    });
-    
-    // Size button
-    document.getElementById('sizeBtn').addEventListener('click', () => {
-        togglePopup('sizePopup');
-    });
-    
-    // Brush button
+    document.getElementById('colorBtn').addEventListener('click', () => togglePopup('colorPopup'));
+    document.getElementById('sizeBtn').addEventListener('click', () => togglePopup('sizePopup'));
     document.getElementById('brushBtn').addEventListener('click', () => {
         currentTool = 'brush';
         updateToolButtons();
     });
-    
-    // Eraser button
     document.getElementById('eraserBtn').addEventListener('click', () => {
         currentTool = 'eraser';
         updateToolButtons();
     });
-    
-    // Undo button
     document.getElementById('undoBtn').addEventListener('click', undoLastStroke);
-    
-    // Clear button
     document.getElementById('clearBtn').addEventListener('click', clearCanvas);
+    
+    // Bucket fill button
+    const bucketBtn = document.createElement('button');
+    bucketBtn.className = 'tool-btn';
+    bucketBtn.id = 'bucketBtn';
+    bucketBtn.title = 'Bucket Fill';
+    bucketBtn.innerHTML = '🪣';
+    bucketBtn.addEventListener('click', () => {
+        currentTool = 'bucket';
+        updateToolButtons();
+    });
+    
+    // Insert before undo button
+    const undoBtn = document.getElementById('undoBtn');
+    undoBtn.parentNode.insertBefore(bucketBtn, undoBtn);
 }
 
 function updateToolButtons() {
     document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
     
-    if (currentTool === 'brush') {
-        document.getElementById('brushBtn').classList.add('active');
-    } else if (currentTool === 'eraser') {
-        document.getElementById('eraserBtn').classList.add('active');
-    }
+    if (currentTool === 'brush') document.getElementById('brushBtn').classList.add('active');
+    else if (currentTool === 'eraser') document.getElementById('eraserBtn').classList.add('active');
+    else if (currentTool === 'bucket') document.getElementById('bucketBtn').classList.add('active');
 }
 
 function togglePopup(popupId) {
@@ -230,13 +246,20 @@ function closePopups() {
 }
 
 // ==========================================
-// DRAWING FUNCTIONS
+// DRAWING FUNCTIONS - FIXED
 // ==========================================
 
 function getCoordinates(e) {
     const rect = canvas.getBoundingClientRect();
-    const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-    const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+    let clientX, clientY;
+    
+    if (e.touches && e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+    } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+    }
     
     return {
         x: clientX - rect.left,
@@ -247,13 +270,20 @@ function getCoordinates(e) {
 function startDrawing(e) {
     if (!gameState.isDrawer || !gameState.isGameActive) return;
     
-    isDrawing = true;
     const coords = getCoordinates(e);
+    
+    // Bucket fill tool
+    if (currentTool === 'bucket') {
+        floodFill(Math.floor(coords.x), Math.floor(coords.y), currentColor);
+        sendDrawingData('fill', { x: Math.floor(coords.x), y: Math.floor(coords.y) }, currentColor);
+        return;
+    }
+    
+    isDrawing = true;
     
     ctx.beginPath();
     ctx.moveTo(coords.x, coords.y);
     
-    // Start new stroke
     const stroke = {
         color: currentTool === 'eraser' ? '#ffffff' : currentColor,
         size: currentSize,
@@ -262,13 +292,16 @@ function startDrawing(e) {
     
     drawingHistory.push(stroke);
     
-    // Send to Firebase
     sendDrawingData('start', coords, stroke.color, stroke.size);
 }
 
 function draw(e) {
     if (!isDrawing || !gameState.isDrawer) return;
     e.preventDefault();
+    
+    const now = Date.now();
+    if (now - lastDrawTime < 16) return; // Throttle to ~60fps
+    lastDrawTime = now;
     
     const coords = getCoordinates(e);
     
@@ -279,14 +312,21 @@ function draw(e) {
     
     ctx.lineTo(coords.x, coords.y);
     ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(coords.x, coords.y);
     
-    // Add to current stroke
     if (drawingHistory.length > 0) {
         drawingHistory[drawingHistory.length - 1].points.push({ x: coords.x, y: coords.y });
     }
     
-    // Send to Firebase (throttled in real implementation)
-    sendDrawingData('draw', coords);
+    // Batch draw commands
+    if (drawingHistory.length > 0) {
+        const lastStroke = drawingHistory[drawingHistory.length - 1];
+        const lastPoint = lastStroke.points[lastStroke.points.length - 1];
+        if (lastStroke.points.length % 5 === 0) {
+            sendDrawingData('draw', coords);
+        }
+    }
 }
 
 function stopDrawing() {
@@ -301,9 +341,87 @@ function handleTouch(e) {
     const touch = e.touches[0];
     const mouseEvent = new MouseEvent(e.type === 'touchstart' ? 'mousedown' : 'mousemove', {
         clientX: touch.clientX,
-        clientY: touch.clientY
+        clientY: touch.clientY,
+        bubbles: true
     });
     canvas.dispatchEvent(mouseEvent);
+}
+
+// ==========================================
+// BUCKET FILL (FLOOD FILL) ALGORITHM
+// ==========================================
+
+function floodFill(startX, startY, fillColor) {
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    const width = canvas.width;
+    const height = canvas.height;
+    
+    // Get target color at start position
+    const startPos = (startY * width + startX) * 4;
+    const targetR = data[startPos];
+    const targetG = data[startPos + 1];
+    const targetB = data[startPos + 2];
+    const targetA = data[startPos + 3];
+    
+    // Parse fill color
+    const fillRgb = hexToRgb(fillColor);
+    if (!fillRgb) return;
+    
+    // Don't fill if same color
+    if (targetR === fillRgb.r && targetG === fillRgb.g && targetB === fillRgb.b) return;
+    
+    const stack = [[startX, startY]];
+    const visited = new Set();
+    const key = (x, y) => `${x},${y}`;
+    
+    while (stack.length > 0) {
+        const [x, y] = stack.pop();
+        const k = key(x, y);
+        
+        if (visited.has(k)) continue;
+        if (x < 0 || x >= width || y < 0 || y >= height) continue;
+        
+        const pos = (y * width + x) * 4;
+        const r = data[pos];
+        const g = data[pos + 1];
+        const b = data[pos + 2];
+        const a = data[pos + 3];
+        
+        // Check if pixel matches target color (with tolerance)
+        const tolerance = 32;
+        if (Math.abs(r - targetR) > tolerance || 
+            Math.abs(g - targetG) > tolerance || 
+            Math.abs(b - targetB) > tolerance ||
+            Math.abs(a - targetA) > tolerance) {
+            continue;
+        }
+        
+        visited.add(k);
+        
+        // Fill pixel
+        data[pos] = fillRgb.r;
+        data[pos + 1] = fillRgb.g;
+        data[pos + 2] = fillRgb.b;
+        data[pos + 3] = 255;
+        
+        // Add neighbors
+        stack.push([x + 1, y]);
+        stack.push([x - 1, y]);
+        stack.push([x, y + 1]);
+        stack.push([x, y - 1]);
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+}
+
+function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null;
 }
 
 function undoLastStroke() {
@@ -317,10 +435,7 @@ function undoLastStroke() {
 function clearCanvas() {
     if (!gameState.isDrawer) return;
     
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    undoStack = [...undoStack, ...drawingHistory];
-    drawingHistory = [];
+    clearCanvasLocal();
     sendDrawingData('clear');
 }
 
@@ -348,7 +463,7 @@ function redrawCanvas() {
 }
 
 // ==========================================
-// FIREBASE DRAWING SYNC
+// FIREBASE DRAWING SYNC - FIXED
 // ==========================================
 
 function sendDrawingData(type, coords, color, size) {
@@ -357,61 +472,105 @@ function sendDrawingData(type, coords, color, size) {
     const data = {
         type: type,
         playerId: gameState.playerId,
-        timestamp: Date.now()
+        timestamp: firebase.database.ServerValue.TIMESTAMP
     };
     
     if (coords) {
-        data.x = coords.x;
-        data.y = coords.y;
+        data.x = Math.round(coords.x);
+        data.y = Math.round(coords.y);
     }
     if (color) data.color = color;
     if (size) data.size = size;
     
-    roomRef.child('drawing').push(data);
+    // Use push for real-time, but limit history
+    drawingRef.push(data);
+    
+    // Keep only last 1000 drawing commands
+    drawingRef.once('value', (snapshot) => {
+        const count = snapshot.numChildren();
+        if (count > 1000) {
+            const updates = {};
+            let i = 0;
+            snapshot.forEach((child) => {
+                if (i < count - 1000) {
+                    updates[child.key] = null;
+                }
+                i++;
+            });
+            drawingRef.update(updates);
+        }
+    });
 }
 
 function listenToDrawing() {
     if (!roomRef) return;
     
-    roomRef.child('drawing').on('child_added', (snapshot) => {
+    // Clear canvas when game starts
+    gameRef.child('state').on('value', (snapshot) => {
+        const state = snapshot.val();
+        if (state === 'drawing') {
+            // Small delay to ensure drawer has cleared
+            setTimeout(() => {
+                if (!gameState.isDrawer) {
+                    clearCanvasLocal();
+                }
+            }, 100);
+        }
+    });
+    
+    drawingRef.on('child_added', (snapshot) => {
         const data = snapshot.val();
         if (!data || data.playerId === gameState.playerId) return;
         
         handleRemoteDrawing(data);
     });
-    
-    roomRef.child('drawing').on('child_removed', () => {
-        // Clear command
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-    });
 }
+
+let remoteStroke = null;
 
 function handleRemoteDrawing(data) {
     if (data.type === 'start') {
+        remoteStroke = {
+            color: data.color,
+            size: data.size,
+            points: [{ x: data.x, y: data.y }]
+        };
+        
         ctx.beginPath();
         ctx.moveTo(data.x, data.y);
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.lineWidth = data.size;
         ctx.strokeStyle = data.color;
+        
     } else if (data.type === 'draw') {
+        if (!remoteStroke) return;
+        
         ctx.lineTo(data.x, data.y);
         ctx.stroke();
-    } else if (data.type === 'end') {
         ctx.beginPath();
+        ctx.moveTo(data.x, data.y);
+        
+        remoteStroke.points.push({ x: data.x, y: data.y });
+        
+    } else if (data.type === 'end') {
+        remoteStroke = null;
+        ctx.beginPath();
+        
+    } else if (data.type === 'fill') {
+        floodFill(data.x, data.y, data.color);
+        
     } else if (data.type === 'clear') {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        clearCanvasLocal();
+        
     } else if (data.type === 'undo') {
-        // Simple clear and redraw for remote undo
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Simple clear for remote undo
+        clearCanvasLocal();
     }
 }
 
 // ==========================================
-// GAME LOGIC
+// GAME LOGIC - FIXED
 // ==========================================
 
 function joinGame() {
@@ -421,15 +580,12 @@ function joinGame() {
     gameState.playerName = nameInput.value.trim() || 'Player' + Math.floor(Math.random() * 1000);
     let roomCode = roomInput.value.trim().toUpperCase();
     
-    // Show loading
     document.getElementById('loadingOverlay').classList.add('show');
     
     if (!roomCode) {
-        // Create new room
         roomCode = generateRoomCode();
         createRoom(roomCode);
     } else {
-        // Join existing room
         joinExistingRoom(roomCode);
     }
 }
@@ -453,26 +609,19 @@ function createRoom(roomCode) {
     drawingRef = roomRef.child('drawing');
     gameRef = roomRef.child('game');
     
-    // Initialize room data
     roomRef.set({
         created: Date.now(),
         gameState: 'waiting',
         round: 1,
         maxRounds: 10,
         currentDrawer: null,
-        currentWord: null
+        currentWord: null,
+        allGuessed: false
     });
     
-    // Add player
     addPlayerToRoom();
-    
-    // Setup listeners
     setupGameListeners();
-    
-    // Show game screen
     showGameScreen(roomCode);
-    
-    // Check if we can start
     checkStartGame();
 }
 
@@ -513,7 +662,6 @@ function addPlayerToRoom() {
         hasGuessed: false
     });
     
-    // Remove player on disconnect
     playersRef.child(gameState.playerId).onDisconnect().remove();
 }
 
@@ -523,53 +671,46 @@ function showGameScreen(roomCode) {
     document.getElementById('gameScreen').style.display = 'flex';
     document.getElementById('roomCodeDisplay').textContent = roomCode;
     
-    // Send join message
     sendChatMessage('system', `${gameState.playerName} joined the game!`);
 }
 
 function setupGameListeners() {
-    // Listen to players
     playersRef.on('value', (snapshot) => {
         gameState.players = snapshot.val() || {};
         updatePlayersList();
     });
     
-    // Listen to chat
     chatRef.limitToLast(50).on('child_added', (snapshot) => {
         const message = snapshot.val();
         displayChatMessage(message);
     });
     
-    // Listen to game state
     gameRef.on('value', (snapshot) => {
         const game = snapshot.val();
         if (!game) return;
         handleGameStateChange(game);
     });
     
-    // Listen to drawing
     listenToDrawing();
 }
 
 // ==========================================
-// GAME STATE MANAGEMENT
+// GAME STATE MANAGEMENT - FIXED
 // ==========================================
 
 function handleGameStateChange(game) {
     gameState.round = game.round || 1;
     gameState.maxRounds = game.maxRounds || 10;
+    gameState.allGuessed = game.allGuessed || false;
     
     document.getElementById('roundInfo').textContent = `Round ${gameState.round}/${gameState.maxRounds}`;
     
-    // Check if we're the drawer
     const wasDrawer = gameState.isDrawer;
     gameState.isDrawer = game.currentDrawer === gameState.playerId;
     
     if (gameState.isDrawer && !wasDrawer) {
-        // Just became drawer
         becomeDrawer();
     } else if (!gameState.isDrawer && wasDrawer) {
-        // Stopped being drawer
         stopBeingDrawer();
     }
     
@@ -578,25 +719,27 @@ function handleGameStateChange(game) {
         document.getElementById('wordDisplay').textContent = game.currentWord;
         document.getElementById('wordHint').textContent = 'Draw this word!';
     } else if (game.currentWord) {
-        // Show underscores for guessers
         const display = game.currentWord.split('').map(char => char === ' ' ? ' ' : '_').join(' ');
         document.getElementById('wordDisplay').textContent = display;
         document.getElementById('wordHint').textContent = `${game.currentWord.length} letters`;
     }
     
-    // Timer
     if (game.timer !== undefined) {
         gameState.timer = game.timer;
         updateTimerDisplay();
     }
     
-    // Game state
     if (game.state === 'choosing') {
         showWaitingOverlay(true);
     } else if (game.state === 'drawing') {
         showWaitingOverlay(false);
         gameState.isGameActive = true;
         gameState.currentWord = game.currentWord;
+        
+        // Clear canvas for new round
+        if (!gameState.isDrawer) {
+            clearCanvasLocal();
+        }
     } else if (game.state === 'round_end') {
         showRoundEnd(game);
     } else if (game.state === 'game_over') {
@@ -608,8 +751,7 @@ function becomeDrawer() {
     gameState.isDrawer = true;
     document.getElementById('drawerBadge').style.display = 'flex';
     document.getElementById('toolbar').classList.add('show');
-    
-    // Show word selection
+    clearCanvasLocal();
     showWordSelection();
 }
 
@@ -638,7 +780,6 @@ function showWordSelection() {
     
     document.getElementById('wordModal').classList.add('show');
     
-    // Start countdown
     let timeLeft = 15;
     const timerEl = document.getElementById('wordTimer');
     timerEl.textContent = timeLeft;
@@ -649,7 +790,7 @@ function showWordSelection() {
         if (timeLeft <= 0) {
             clearInterval(countdown);
             if (document.getElementById('wordModal').classList.contains('show')) {
-                selectWord(options[0].word); // Auto select easy
+                selectWord(options[0].word);
             }
         }
     }, 1000);
@@ -658,14 +799,17 @@ function showWordSelection() {
 function selectWord(word) {
     document.getElementById('wordModal').classList.remove('show');
     
+    // Clear canvas when selecting word
+    clearCanvasLocal();
+    
     gameRef.update({
         state: 'drawing',
         currentWord: word,
         timer: 80,
-        startTime: Date.now()
+        startTime: Date.now(),
+        allGuessed: false
     });
     
-    // Start timer
     startGameTimer();
 }
 
@@ -683,7 +827,7 @@ function startGameTimer() {
             
             gameRef.update({ timer: remaining });
             
-            if (remaining <= 0) {
+            if (remaining <= 0 || game.allGuessed) {
                 clearInterval(timerInterval);
                 endRound();
             }
@@ -702,7 +846,6 @@ function endRound() {
             if (nextRound > gameState.maxRounds) {
                 gameRef.update({ state: 'game_over' });
             } else {
-                // Choose next drawer
                 const playerIds = Object.keys(gameState.players);
                 const currentIndex = playerIds.indexOf(game.currentDrawer);
                 const nextDrawer = playerIds[(currentIndex + 1) % playerIds.length];
@@ -712,10 +855,10 @@ function endRound() {
                     round: nextRound,
                     currentDrawer: nextDrawer,
                     currentWord: null,
-                    timer: 80
+                    timer: 80,
+                    allGuessed: false
                 });
                 
-                // Reset hasGuessed for all players
                 playersRef.once('value', (snap) => {
                     const players = snap.val();
                     Object.keys(players).forEach(pid => {
@@ -728,7 +871,7 @@ function endRound() {
 }
 
 // ==========================================
-// CHAT SYSTEM
+// CHAT SYSTEM - FIXED (No guessing for drawer)
 // ==========================================
 
 function handleChat(e) {
@@ -743,22 +886,37 @@ function sendMessage() {
     
     if (!text) return;
     
-    // Check if it's a guess
-    if (!gameState.isDrawer && gameState.isGameActive && text.toLowerCase() === gameState.currentWord.toLowerCase()) {
+    // Drawer cannot guess
+    if (gameState.isDrawer) {
+        showToast("You can't guess - you're drawing!", 'warning');
+        input.value = '';
+        return;
+    }
+    
+    // Check if already guessed correctly
+    if (gameState.players[gameState.playerId]?.hasGuessed) {
+        showToast("You already guessed correctly!", 'info');
+        input.value = '';
+        return;
+    }
+    
+    // Check correct guess
+    if (gameState.isGameActive && text.toLowerCase() === gameState.currentWord?.toLowerCase()) {
         handleCorrectGuess();
         input.value = '';
         return;
     }
     
-    // Check if close (for hint system)
-    const similarity = calculateSimilarity(text.toLowerCase(), gameState.currentWord.toLowerCase());
-    const isClose = similarity > 0.7 && similarity < 1;
+    // Check if close
+    const similarity = calculateSimilarity(text.toLowerCase(), gameState.currentWord?.toLowerCase() || '');
+    const isClose = similarity > 0.6 && similarity < 1;
     
     sendChatMessage('guess', text, gameState.playerName, isClose);
     input.value = '';
 }
 
 function calculateSimilarity(str1, str2) {
+    if (!str1 || !str2) return 0;
     if (str1 === str2) return 1;
     if (str1.length < 2 || str2.length < 2) return 0;
     
@@ -771,9 +929,8 @@ function calculateSimilarity(str1, str2) {
 }
 
 function handleCorrectGuess() {
-    if (gameState.players[gameState.playerId].hasGuessed) return;
+    if (gameState.players[gameState.playerId]?.hasGuessed) return;
     
-    // Calculate points based on time
     const points = Math.max(10, Math.floor(gameState.timer / 8) * 10);
     
     playersRef.child(gameState.playerId).update({
@@ -783,20 +940,28 @@ function handleCorrectGuess() {
     
     sendChatMessage('correct', `${gameState.playerName} guessed the word! (+${points} pts)`, null, false, true);
     
-    // Check if all guessed
     checkAllGuessed();
 }
 
 function checkAllGuessed() {
-    const players = Object.values(gameState.players);
-    const nonDrawers = players.filter(p => {
-        const pid = Object.keys(gameState.players).find(key => gameState.players[key] === p);
-        return pid !== gameRef.currentDrawer;
-    });
+    const players = Object.entries(gameState.players);
+    const guessers = players.filter(([pid, p]) => pid !== gameRef.currentDrawer);
+    const allGuessersCorrect = guessers.every(([pid, p]) => p.hasGuessed);
     
-    const allGuessed = nonDrawers.every(p => p.hasGuessed);
-    
-    if (allGuessed) {
+    // Need at least 2 players and all non-drawers guessed
+    if (guessers.length >= 1 && allGuessersCorrect) {
+        gameRef.update({ allGuessed: true });
+        
+        // Bonus points to drawer
+        const drawerId = gameRef.currentDrawer;
+        if (drawerId && gameState.players[drawerId]) {
+            const bonus = 25;
+            playersRef.child(drawerId).update({
+                score: (gameState.players[drawerId].score || 0) + bonus
+            });
+            sendChatMessage('system', `${gameState.players[drawerId].name} gets +${bonus} bonus points!`);
+        }
+        
         setTimeout(() => endRound(), 2000);
     }
 }
@@ -806,7 +971,7 @@ function sendChatMessage(type, text, username = null, isClose = false, isCorrect
         type: type,
         text: text,
         username: username || gameState.playerName,
-        timestamp: Date.now(),
+        timestamp: firebase.database.ServerValue.TIMESTAMP,
         isClose: isClose,
         isCorrect: isCorrect
     });
@@ -849,7 +1014,6 @@ function updatePlayersList() {
     const players = Object.entries(gameState.players);
     playerCount.textContent = `${players.length}/8`;
     
-    // Sort by score
     players.sort((a, b) => (b[1].score || 0) - (a[1].score || 0));
     
     players.forEach(([id, player]) => {
@@ -865,9 +1029,9 @@ function updatePlayersList() {
             <div class="player-info">
                 <div class="player-name">
                     ${player.name} ${id === gameState.playerId ? '(You)' : ''}
-                    ${gameRef && gameRef.currentDrawer === id ? '<span class="pencil-icon">✏️</span>' : ''}
+                    ${game.currentDrawer === id ? '<span class="pencil-icon">✏️</span>' : ''}
                 </div>
-                <div class="player-status">${player.hasGuessed ? 'Guessed!' : (gameRef && gameRef.currentDrawer === id ? 'Drawing...' : 'Guessing...')}</div>
+                <div class="player-status">${player.hasGuessed ? 'Guessed!' : (game.currentDrawer === id ? 'Drawing...' : 'Guessing...')}</div>
             </div>
             <div class="player-score">${player.score || 0}</div>
         `;
@@ -879,20 +1043,14 @@ function updatePlayersList() {
 function updateTimerDisplay() {
     document.getElementById('timer').textContent = gameState.timer;
     
-    // Update circle progress
     const circle = document.getElementById('timerCircle');
     const circumference = 2 * Math.PI * 15.9155;
     const offset = circumference - (gameState.timer / 80) * circumference;
     circle.style.strokeDashoffset = offset;
     
-    // Change color based on time
-    if (gameState.timer <= 10) {
-        circle.style.stroke = '#e74c3c';
-    } else if (gameState.timer <= 30) {
-        circle.style.stroke = '#f39c12';
-    } else {
-        circle.style.stroke = '#2ecc71';
-    }
+    if (gameState.timer <= 10) circle.style.stroke = '#e74c3c';
+    else if (gameState.timer <= 30) circle.style.stroke = '#f39c12';
+    else circle.style.stroke = '#2ecc71';
 }
 
 function showWaitingOverlay(show) {
@@ -903,7 +1061,6 @@ function showRoundEnd(game) {
     document.getElementById('roundOverlay').classList.add('show');
     document.getElementById('revealedWord').textContent = game.currentWord || '---';
     
-    // Show scores
     const scoresDiv = document.getElementById('roundScores');
     scoresDiv.innerHTML = '';
     
@@ -957,7 +1114,6 @@ function checkStartGame() {
         const count = Object.keys(players || {}).length;
         
         if (count >= 2 && !gameState.isGameActive) {
-            // Start game with first player as drawer
             const firstPlayer = Object.keys(players)[0];
             gameRef.update({
                 state: 'choosing',
@@ -982,10 +1138,10 @@ function playAgain() {
             state: 'choosing',
             round: 1,
             currentDrawer: Object.keys(gameState.players)[0],
-            currentWord: null
+            currentWord: null,
+            allGuessed: false
         });
         
-        // Reset scores
         Object.keys(gameState.players).forEach(pid => {
             playersRef.child(pid).update({ score: 0, hasGuessed: false });
         });
@@ -1017,7 +1173,6 @@ function showToast(message, type = 'info') {
     }, 3000);
 }
 
-// Prevent accidental refresh
 window.addEventListener('beforeunload', (e) => {
     if (gameState.isGameActive) {
         e.preventDefault();
@@ -1025,4 +1180,4 @@ window.addEventListener('beforeunload', (e) => {
     }
 });
 
-console.log('🎮 Game engine loaded!');
+console.log('🎮 Game engine v2.0 loaded!');
