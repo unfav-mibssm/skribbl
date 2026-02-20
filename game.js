@@ -1,5 +1,5 @@
 // ==========================================
-// GAME ENGINE - FIXED LAYOUT & ROUNDS
+// GAME ENGINE - 10 ROUNDS FIXED
 // ==========================================
 
 let gameState = {
@@ -9,10 +9,10 @@ let gameState = {
     isDrawer: false,
     currentWord: null,
     round: 1,
-    maxRounds: 10, // 10 rounds, everyone draws once per round
+    maxRounds: 10, // 10 ROUNDS
     timer: 80,
     players: {},
-    playerList: [], // Ordered list for rotation
+    playerList: [],
     currentDrawerIndex: 0,
     isGameActive: false,
     allGuessed: false,
@@ -30,7 +30,6 @@ let drawingHistory = [];
 let lastDrawTime = 0;
 let remoteStroke = null;
 let timerInterval = null;
-let drawBuffer = []; // Buffer for smooth drawing
 
 let roomRef, playersRef, chatRef, drawingRef, gameRef;
 
@@ -69,22 +68,16 @@ function initCanvas() {
     canvas = document.getElementById('gameCanvas');
     ctx = canvas.getContext('2d', { willReadFrequently: true });
     
-    // Initial sizing
     resizeCanvas();
-    
     window.addEventListener('resize', () => {
-        // Don't resize canvas - keep fixed 4:3
-        // Just reposition
-        positionCanvas();
+        resizeCanvas();
     });
     
-    // Mouse
     canvas.addEventListener('mousedown', startDraw);
     canvas.addEventListener('mousemove', draw);
     canvas.addEventListener('mouseup', endDraw);
     canvas.addEventListener('mouseleave', endDraw);
     
-    // Touch
     canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
     canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
     canvas.addEventListener('touchend', endDraw, { passive: false });
@@ -92,17 +85,14 @@ function initCanvas() {
     clearCanvas();
 }
 
-// FIXED: Canvas takes top 40%, positioned at top
 function resizeCanvas() {
     const section = document.querySelector('.canvas-section');
     const sectionHeight = section.clientHeight;
     const sectionWidth = section.clientWidth;
     
-    // Canvas is 4:3, fills width, height is 75% of width
     let width = sectionWidth;
-    let height = width * 0.75; // 4:3 ratio
+    let height = width * 0.75;
     
-    // If height exceeds section, scale down
     if (height > sectionHeight) {
         height = sectionHeight;
         width = height / 0.75;
@@ -111,23 +101,13 @@ function resizeCanvas() {
     canvas.width = width;
     canvas.height = height;
     
-    // Position at top with padding
     canvas.style.width = width + 'px';
     canvas.style.height = height + 'px';
     
-    positionCanvas();
-}
-
-function positionCanvas() {
-    const section = document.querySelector('.canvas-section');
-    const sectionHeight = section.clientHeight;
-    
-    // Position at top with small margin
     canvas.style.position = 'absolute';
     canvas.style.left = '50%';
-    canvas.style.top = '10px'; // Small top margin
+    canvas.style.top = '10px';
     canvas.style.transform = 'translateX(-50%)';
-    canvas.style.margin = '0';
 }
 
 function clearCanvas() {
@@ -216,7 +196,7 @@ function closePopups() {
 }
 
 // ==========================================
-// DRAWING - FIXED FOR SMOOTH CURVES
+// DRAWING - SMOOTH CURVES
 // ==========================================
 
 function getPos(e) {
@@ -231,7 +211,6 @@ function getPos(e) {
         clientY = e.clientY;
     }
     
-    // Calculate position relative to canvas element
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     
@@ -241,7 +220,6 @@ function getPos(e) {
     };
 }
 
-// Use quadratic curves for smooth lines
 let lastPoint = null;
 
 function startDraw(e) {
@@ -250,7 +228,6 @@ function startDraw(e) {
     
     const pos = getPos(e);
     
-    // Check bounds
     if (pos.x < 0 || pos.x > canvas.width || pos.y < 0 || pos.y > canvas.height) return;
     
     if (currentTool === 'bucket') {
@@ -277,7 +254,6 @@ function startDraw(e) {
     };
     drawingHistory.push(stroke);
     
-    // Send immediately
     sendDrawData('start', { x: pos.x, y: pos.y, color: stroke.color, size: stroke.size });
 }
 
@@ -287,36 +263,25 @@ function draw(e) {
     
     const pos = getPos(e);
     
-    // Check bounds
     if (pos.x < 0 || pos.x > canvas.width || pos.y < 0 || pos.y > canvas.height) {
         lastPoint = pos;
         return;
     }
     
-    // Use quadratic curve for smoothness
     if (lastPoint) {
-        const midPoint = {
-            x: (lastPoint.x + pos.x) / 2,
-            y: (lastPoint.y + pos.y) / 2
-        };
+        const midX = (lastPoint.x + pos.x) / 2;
+        const midY = (lastPoint.y + pos.y) / 2;
         
-        ctx.quadraticCurveTo(lastPoint.x, lastPoint.y, midPoint.x, midPoint.y);
+        ctx.quadraticCurveTo(lastPoint.x, lastPoint.y, midX, midY);
         ctx.stroke();
         ctx.beginPath();
-        ctx.moveTo(midPoint.x, midPoint.y);
+        ctx.moveTo(midX, midY);
         
-        // Add to history
         if (drawingHistory.length > 0) {
             drawingHistory[drawingHistory.length - 1].points.push({ x: pos.x, y: pos.y });
         }
         
-        // Send to others - batch every 2 points for smoother sync
-        sendDrawData('draw', { 
-            x: pos.x, 
-            y: pos.y, 
-            lx: lastPoint.x, 
-            ly: lastPoint.y 
-        });
+        sendDrawData('draw', { x: pos.x, y: pos.y, lx: lastPoint.x, ly: lastPoint.y });
     }
     
     lastPoint = pos;
@@ -442,7 +407,7 @@ function redraw() {
 }
 
 // ==========================================
-// FIREBASE SYNC - FIXED FOR SMOOTH LINES
+// FIREBASE SYNC
 // ==========================================
 
 function sendDrawData(type, data) {
@@ -477,7 +442,6 @@ function listenDrawing() {
     });
 }
 
-// FIXED: Use quadratic curves for remote drawing too
 function handleRemoteDraw(data) {
     switch(data.type) {
         case 'start':
@@ -498,7 +462,6 @@ function handleRemoteDraw(data) {
         case 'draw':
             if (!remoteStroke) return;
             
-            // Use quadratic curve for smooth remote lines
             const midX = (remoteStroke.lastX + data.x) / 2;
             const midY = (remoteStroke.lastY + data.y) / 2;
             
@@ -527,7 +490,7 @@ function handleRemoteDraw(data) {
 }
 
 // ==========================================
-// GAME LOGIC - FIXED ROTATION SYSTEM
+// GAME LOGIC - 10 ROUNDS
 // ==========================================
 
 function joinGame() {
@@ -565,12 +528,12 @@ function createRoom(code) {
         created: Date.now(),
         state: 'waiting',
         round: 1,
-        maxRounds: 10, // 10 rounds total
+        maxRounds: 10, // 10 ROUNDS
         currentDrawerIndex: 0,
         drawer: null,
         word: null,
         allGuessed: false,
-        playerList: [] // Will store ordered player IDs
+        playerList: []
     }).then(() => {
         addPlayer();
     });
@@ -612,15 +575,12 @@ function addPlayer() {
 }
 
 function setupListeners() {
-    // Players
     playersRef.on('value', (snap) => {
         const previousPlayers = { ...gameState.players };
         gameState.players = snap.val() || {};
         
-        // Update player list order
         updatePlayerList();
         
-        // Detect who left
         const prevIds = Object.keys(previousPlayers);
         const currentIds = Object.keys(gameState.players);
         
@@ -630,7 +590,6 @@ function setupListeners() {
                 gameState.leftPlayerName = previousPlayers[leftId].name;
                 showToast(`${gameState.leftPlayerName} left the game`, 'info');
                 
-                // Remove from playerList if present
                 gameRef.once('value', (gameSnap) => {
                     const game = gameSnap.val();
                     if (game && game.playerList) {
@@ -647,13 +606,11 @@ function setupListeners() {
         
         gameState.lastPlayerCount = currentIds.length;
         
-        // Check start
         if (!gameState.gameStarted) {
             checkStartGame();
         }
     });
     
-    // Chat
     chatRef.limitToLast(100).on('child_added', (snap) => {
         const msg = snap.val();
         if (shouldShowMessage(msg)) {
@@ -661,7 +618,6 @@ function setupListeners() {
         }
     });
     
-    // Game state
     gameRef.on('value', (snap) => {
         const game = snap.val();
         if (game) {
@@ -675,14 +631,10 @@ function setupListeners() {
     listenDrawing();
 }
 
-// FIXED: Everyone draws once per round
 function checkStartGame() {
     const playerIds = Object.keys(gameState.players);
     
     if (playerIds.length >= 2 && !gameState.gameStarted) {
-        console.log('Starting game with', playerIds.length, 'players');
-        
-        // Create ordered player list
         gameState.playerList = playerIds;
         
         const firstPlayer = playerIds[0];
@@ -731,7 +683,6 @@ function showDrawerLeftModal(word) {
 function continueGame() {
     document.getElementById('playerLeftModal').classList.remove('show');
     
-    // Skip to next player in list
     gameRef.once('value', (snap) => {
         const game = snap.val();
         if (!game) return;
@@ -739,7 +690,6 @@ function continueGame() {
         const playerList = game.playerList || Object.keys(gameState.players);
         let nextIndex = (game.currentDrawerIndex + 1) % playerList.length;
         
-        // Skip players who left
         while (nextIndex < playerList.length && !gameState.players[playerList[nextIndex]]) {
             nextIndex = (nextIndex + 1) % playerList.length;
         }
@@ -895,7 +845,7 @@ function startTimer() {
     }, 1000);
 }
 
-// FIXED: Everyone draws once per round
+// FIXED: 10 ROUNDS - Everyone draws once per round
 function endRound() {
     gameRef.once('value', (snap) => {
         const game = snap.val();
@@ -905,14 +855,13 @@ function endRound() {
         let nextIndex = (game.currentDrawerIndex + 1) % playerList.length;
         let nextRound = game.round;
         
-        // Check if we've gone through all players in this round
+        // If we've gone through all players, next round
         if (nextIndex === 0) {
-            // Everyone has drawn in this round, move to next round
             nextRound = game.round + 1;
         }
         
-        // Check if game over
-        if (nextRound > gameState.maxRounds) {
+        // Check if 10 rounds completed
+        if (nextRound > 10) { // 10 ROUNDS
             gameRef.update({ state: 'game_over' });
             return;
         }
@@ -920,10 +869,9 @@ function endRound() {
         // Skip players who left
         while (nextIndex < playerList.length && !gameState.players[playerList[nextIndex]]) {
             nextIndex = (nextIndex + 1) % playerList.length;
-            // If we wrapped around, increment round
             if (nextIndex === 0) {
                 nextRound++;
-                if (nextRound > gameState.maxRounds) {
+                if (nextRound > 10) { // 10 ROUNDS
                     gameRef.update({ state: 'game_over' });
                     return;
                 }
@@ -932,7 +880,6 @@ function endRound() {
         
         const nextDrawer = playerList[nextIndex];
         
-        // Show round end briefly
         gameRef.update({ state: 'round_end' });
         
         setTimeout(() => {
@@ -1143,7 +1090,6 @@ function showGame(code) {
     document.getElementById('gameScreen').style.display = 'flex';
     document.getElementById('roomCodeDisplay').textContent = code;
     
-    // Resize and position canvas
     setTimeout(() => {
         resizeCanvas();
     }, 100);
@@ -1193,4 +1139,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v6.0 loaded!');
+console.log('🎮 Game engine v7.0 - 10 ROUNDS loaded!');
