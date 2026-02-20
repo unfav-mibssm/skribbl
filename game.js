@@ -9,7 +9,7 @@ let gameState = {
     isDrawer: false,
     currentWord: null,
     round: 1,
-    maxRounds: 10, // 10 ROUNDS
+    maxRounds: 10,
     timer: 80,
     players: {},
     playerList: [],
@@ -18,7 +18,8 @@ let gameState = {
     allGuessed: false,
     lastPlayerCount: 0,
     leftPlayerName: null,
-    gameStarted: false
+    gameStarted: false,
+    joinTime: null // NEW: Track when player joined
 };
 
 let canvas, ctx;
@@ -32,6 +33,9 @@ let remoteStroke = null;
 let timerInterval = null;
 
 let roomRef, playersRef, chatRef, drawingRef, gameRef;
+
+// NEW: Audio elements
+let sounds = {};
 
 const colors = [
     '#000000', '#2c3e50', '#8e44ad', '#c0392b', '#d35400',
@@ -56,6 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initColorPicker();
     initSizePicker();
     initToolbar();
+    initSounds(); // NEW: Initialize sounds
     
     document.getElementById('chatInput').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
@@ -63,6 +68,24 @@ document.addEventListener('DOMContentLoaded', () => {
     
     document.getElementById('popupOverlay').addEventListener('click', closePopups);
 });
+
+// NEW: Initialize audio elements
+function initSounds() {
+    sounds.join = document.getElementById('soundJoin');
+    sounds.correct = document.getElementById('soundCorrect');
+    sounds.roundEnd = document.getElementById('soundRoundEnd');
+    sounds.leave = document.getElementById('soundLeave');
+    sounds.enter = document.getElementById('soundEnter');
+}
+
+// NEW: Play sound helper
+function playSound(soundName) {
+    const sound = sounds[soundName];
+    if (sound) {
+        sound.currentTime = 0;
+        sound.play().catch(e => console.log('Sound play failed:', e));
+    }
+}
 
 function initCanvas() {
     canvas = document.getElementById('gameCanvas');
@@ -90,6 +113,7 @@ function resizeCanvas() {
     const sectionHeight = section.clientHeight;
     const sectionWidth = section.clientWidth;
     
+    // FULL WIDTH - NO PADDING CALCULATION
     let width = sectionWidth;
     let height = width * 0.75;
     
@@ -106,8 +130,8 @@ function resizeCanvas() {
     
     canvas.style.position = 'absolute';
     canvas.style.left = '50%';
-    canvas.style.top = '10px';
-    canvas.style.transform = 'translateX(-50%)';
+    canvas.style.top = '50%';
+    canvas.style.transform = 'translate(-50%, -50%)';
 }
 
 function clearCanvas() {
@@ -498,6 +522,7 @@ function joinGame() {
     const code = document.getElementById('roomCode').value.trim().toUpperCase();
     
     gameState.playerName = name;
+    gameState.joinTime = Date.now(); // NEW: Record join time
     document.getElementById('loadingOverlay').classList.add('show');
     
     if (!code) {
@@ -528,7 +553,7 @@ function createRoom(code) {
         created: Date.now(),
         state: 'waiting',
         round: 1,
-        maxRounds: 10, // 10 ROUNDS
+        maxRounds: 10,
         currentDrawerIndex: 0,
         drawer: null,
         word: null,
@@ -584,11 +609,21 @@ function setupListeners() {
         const prevIds = Object.keys(previousPlayers);
         const currentIds = Object.keys(gameState.players);
         
+        // NEW: Check for new players joining (not us)
+        if (prevIds.length > 0 && currentIds.length > prevIds.length) {
+            const joinedId = currentIds.find(id => !prevIds.includes(id));
+            if (joinedId && joinedId !== gameState.playerId) {
+                playSound('join'); // NEW: Play join sound
+            }
+        }
+        
+        // NEW: Check for players leaving
         if (prevIds.length > 0 && currentIds.length < prevIds.length) {
             const leftId = prevIds.find(id => !currentIds.includes(id));
             if (leftId && previousPlayers[leftId]) {
                 gameState.leftPlayerName = previousPlayers[leftId].name;
                 showToast(`${gameState.leftPlayerName} left the game`, 'info');
+                playSound('leave'); // NEW: Play leave sound
                 
                 gameRef.once('value', (gameSnap) => {
                     const game = gameSnap.val();
@@ -611,10 +646,17 @@ function setupListeners() {
         }
     });
     
+    // MODIFIED: Only show messages sent after join time
     chatRef.limitToLast(100).on('child_added', (snap) => {
         const msg = snap.val();
-        if (shouldShowMessage(msg)) {
+        // Only show messages sent after this player joined
+        if (msg.time >= gameState.joinTime && shouldShowMessage(msg)) {
             displayMessage(msg);
+            
+            // NEW: Play sound for correct guesses by others
+            if (msg.type === 'correct' && msg.player !== gameState.playerId) {
+                playSound('correct');
+            }
         }
     });
     
@@ -845,7 +887,6 @@ function startTimer() {
     }, 1000);
 }
 
-// FIXED: 10 ROUNDS - Everyone draws once per round
 function endRound() {
     gameRef.once('value', (snap) => {
         const game = snap.val();
@@ -855,23 +896,20 @@ function endRound() {
         let nextIndex = (game.currentDrawerIndex + 1) % playerList.length;
         let nextRound = game.round;
         
-        // If we've gone through all players, next round
         if (nextIndex === 0) {
             nextRound = game.round + 1;
         }
         
-        // Check if 10 rounds completed
-        if (nextRound > 10) { // 10 ROUNDS
+        if (nextRound > 10) {
             gameRef.update({ state: 'game_over' });
             return;
         }
         
-        // Skip players who left
         while (nextIndex < playerList.length && !gameState.players[playerList[nextIndex]]) {
             nextIndex = (nextIndex + 1) % playerList.length;
             if (nextIndex === 0) {
                 nextRound++;
-                if (nextRound > 10) { // 10 ROUNDS
+                if (nextRound > 10) {
                     gameRef.update({ state: 'game_over' });
                     return;
                 }
@@ -952,6 +990,7 @@ function handleCorrectGuess() {
     });
     
     sendChat('correct', `guessed correctly! (+${points})`);
+    playSound('correct'); // NEW: Play sound for own correct guess
     checkAllGuessed();
 }
 
@@ -1006,10 +1045,7 @@ function displayMessage(msg) {
     container.scrollTop = container.scrollHeight;
 }
 
-function clearChat() {
-    chatRef.remove();
-    document.getElementById('chatMessages').innerHTML = '';
-}
+// REMOVED: clearChat function completely
 
 // ==========================================
 // UI
@@ -1047,6 +1083,7 @@ function updatePlayerList() {
 function showRoundEnd(word) {
     document.getElementById('revealedWord').textContent = word || '---';
     document.getElementById('roundOverlay').classList.add('show');
+    playSound('roundEnd'); // NEW: Play round end sound
     
     const scoresDiv = document.getElementById('roundScores');
     scoresDiv.innerHTML = '';
@@ -1089,6 +1126,8 @@ function showGame(code) {
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('gameScreen').style.display = 'flex';
     document.getElementById('roomCodeDisplay').textContent = code;
+    
+    playSound('enter'); // NEW: Play enter game sound
     
     setTimeout(() => {
         resizeCanvas();
@@ -1139,4 +1178,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v7.0 - 10 ROUNDS loaded!');
+console.log('🎮 Game engine v8.0 - 10 ROUNDS with SOUNDS loaded!');
