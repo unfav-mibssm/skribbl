@@ -1,6 +1,5 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getDatabase, ref, set, onValue, push, update, remove, onDisconnect, serverTimestamp, get } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
-import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+// firebase-config.js - Firebase configuration for Skribbl.io
+// Using compat SDK to match the HTML script tags
 
 const firebaseConfig = {
     apiKey: "AIzaSyAY7hSDaaBh71z3k2PXj3s93uxk3AF3Mvs",
@@ -12,22 +11,11 @@ const firebaseConfig = {
     appId: "1:423970942237:web:ac3853dab889c0fe3305f4"
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
-const auth = getAuth(app);
+// Initialize Firebase (compat version - no import needed)
+firebase.initializeApp(firebaseConfig);
 
-export function initAuth() {
-    return new Promise((resolve, reject) => {
-        onAuthStateChanged(auth, (user) => {
-            if (user) {
-                resolve(user);
-            } else {
-                signInAnonymously(auth)
-                    .then((userCredential) => resolve(userCredential.user))
-                    .catch((error) => reject(error));
-            }
-        });
-    });
-}
+// Get database reference for global use
+const database = firebase.database();
 
-export { db, auth, ref, set, onValue, push, update, remove, onDisconnect, serverTimestamp, get };
+// Console log to confirm connection
+console.log("🔥 Firebase connected successfully!");
