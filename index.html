@@ -19,10 +19,9 @@
             height: 100%;
             overflow: hidden;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background: #f0f0f0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
 
-        /* Prevent zoom on inputs */
         input, textarea, select {
             font-size: 16px;
         }
@@ -34,7 +33,6 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -94,7 +92,7 @@
             font-size: 18px;
             font-weight: 600;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: all 0.2s;
         }
 
         .btn:active {
@@ -104,6 +102,38 @@
         .btn:disabled {
             background: #ccc;
             cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn.loading {
+            background: #95a5a6;
+            position: relative;
+        }
+
+        .btn.loading::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #fff;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        @keyframes spin {
+            to { transform: translateY(-50%) rotate(360deg); }
+        }
+
+        .status-text {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 12px;
+            color: #e74c3c;
+            min-height: 20px;
         }
 
         /* Game Screen */
@@ -112,6 +142,7 @@
             width: 100%;
             height: 100%;
             flex-direction: column;
+            background: #f0f0f0;
         }
 
         /* Top Bar */
@@ -152,7 +183,7 @@
             opacity: 0.8;
         }
 
-        /* Canvas Area - Top Half */
+        /* Canvas Section */
         .canvas-section {
             flex: 1;
             position: relative;
@@ -168,7 +199,6 @@
             touch-action: none;
         }
 
-        /* Drawing Tools - Only for drawer */
         .tools-bar {
             display: none;
             position: absolute;
@@ -246,7 +276,6 @@
             background: #ecf0f1;
         }
 
-        /* Players List - Left Half */
         .players-panel {
             flex: 1;
             background: #ecf0f1;
@@ -341,7 +370,6 @@
             font-weight: bold;
         }
 
-        /* Chat Panel - Right Half */
         .chat-panel {
             flex: 1;
             display: flex;
@@ -416,7 +444,7 @@
             border-color: #667eea;
         }
 
-        /* Word Selection Modal */
+        /* Modal */
         .modal-overlay {
             display: none;
             position: fixed;
@@ -460,14 +488,12 @@
             border-radius: 12px;
             font-size: 18px;
             cursor: pointer;
-            transition: transform 0.2s;
         }
 
         .word-option:active {
             transform: scale(0.98);
         }
 
-        /* Waiting Overlay */
         .waiting-overlay {
             display: none;
             position: absolute;
@@ -490,15 +516,36 @@
             border: 4px solid #f3f3f3;
             border-top: 4px solid #667eea;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            animation: spin-anim 1s linear infinite;
         }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        @keyframes spin-anim {
+            to { transform: rotate(360deg); }
         }
 
-        /* Error Display */
+        .drawer-indicator {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(243, 156, 18, 0.9);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 50;
+        }
+
+        .exit-btn {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
         #errorDisplay {
             display: none;
             position: fixed;
@@ -515,7 +562,6 @@
             text-align: center;
         }
 
-        /* Desktop Adjustments */
         @media (min-width: 1024px) {
             .game-screen {
                 max-width: 1200px;
@@ -523,57 +569,18 @@
                 height: 100vh;
                 box-shadow: 0 0 40px rgba(0,0,0,0.2);
             }
-
-            .canvas-section {
-                flex: 2;
-            }
-
-            .bottom-section {
-                height: 35%;
-            }
-        }
-
-        /* Mobile Landscape */
-        @media (max-height: 500px) and (orientation: landscape) {
-            .bottom-section {
-                height: 50%;
-            }
-        }
-
-        /* Drawer Indicator */
-        .drawer-indicator {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(243, 156, 18, 0.9);
-            color: white;
-            padding: 5px 10px;
-            border-radius: 15px;
-            font-size: 12px;
-            font-weight: bold;
-            z-index: 50;
-        }
-
-        /* Exit Button */
-        .exit-btn {
-            background: #e74c3c;
-            color: white;
-            border: none;
-            padding: 5px 10px;
-            border-radius: 5px;
-            font-size: 12px;
-            cursor: pointer;
+            .canvas-section { flex: 2; }
+            .bottom-section { height: 35%; }
         }
     </style>
 </head>
 <body>
-    <!-- Error Display -->
     <div id="errorDisplay"></div>
 
     <!-- Login Screen -->
     <div class="login-screen" id="loginScreen">
         <div class="login-box">
-            <h1>🎨 Mib's Skrib</h1>
+            <h1>🎨 Skribbl.io</h1>
             <p>Draw and guess with friends!</p>
             
             <div class="input-group">
@@ -581,16 +588,16 @@
             </div>
             
             <div class="input-group">
-                <input type="text" id="roomCode" placeholder="Enter room code" maxlength="8">
+                <input type="text" id="roomCode" placeholder="Room code (leave empty to create)" maxlength="8">
             </div>
             
-            <button class="btn" id="joinBtn" onclick="joinGame()">Play Now</button>
+            <button class="btn" id="joinBtn" disabled>Connecting...</button>
+            <div class="status-text" id="statusText">Initializing game...</div>
         </div>
     </div>
 
     <!-- Game Screen -->
     <div class="game-screen" id="gameScreen">
-        <!-- Top Bar -->
         <div class="top-bar">
             <div class="game-info">
                 <div class="timer" id="timer">80</div>
@@ -602,21 +609,13 @@
             </div>
         </div>
 
-        <!-- Canvas Section (Top Half) -->
         <div class="canvas-section">
             <canvas id="gameCanvas"></canvas>
-            
-            <div class="drawer-indicator" id="drawerIndicator" style="display: none;">
-                ✏️ You are drawing
-            </div>
-
-            <!-- Waiting Overlay -->
+            <div class="drawer-indicator" id="drawerIndicator" style="display: none;">✏️ You are drawing</div>
             <div class="waiting-overlay" id="waitingOverlay">
                 <div class="spinner"></div>
                 <div>Waiting for word...</div>
             </div>
-
-            <!-- Tools Bar (Only for drawer) -->
             <div class="tools-bar" id="toolsBar">
                 <div class="tools-row">
                     <div class="color-palette" id="colorPalette"></div>
@@ -632,28 +631,21 @@
             </div>
         </div>
 
-        <!-- Bottom Section -->
         <div class="bottom-section">
-            <!-- Players Panel (Left) -->
             <div class="players-panel">
                 <div class="panel-header">👥 Players</div>
                 <div class="players-list" id="playersList"></div>
             </div>
-
-            <!-- Chat Panel (Right) -->
             <div class="chat-panel">
                 <div class="panel-header">💬 Chat</div>
                 <div class="chat-messages" id="chatMessages"></div>
                 <div class="chat-input-area">
-                    <input type="text" class="chat-input" id="chatInput" 
-                           placeholder="Type guess..." 
-                           onkeypress="handleChatKeypress(event)">
+                    <input type="text" class="chat-input" id="chatInput" placeholder="Type guess..." onkeypress="handleChatKeypress(event)">
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Word Selection Modal -->
     <div class="modal-overlay" id="wordModal">
         <div class="word-selection">
             <h2>Choose a word to draw:</h2>
@@ -661,7 +653,6 @@
         </div>
     </div>
 
-    <!-- Firebase -->
     <script type="module" src="firebase-config.js"></script>
     <script type="module" src="game.js"></script>
 </body>
