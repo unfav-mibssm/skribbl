@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#667eea">
-    <title>SkribbDraw & Guess</title>
+    <title>Skribbl.io Clone - Draw & Guess</title>
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,7 +19,7 @@
         <div class="login-container">
             <div class="logo-section">
                 <div class="logo-icon">🎨</div>
-                <h1>Skribbl.io2</h1>
+                <h1>Skribbl.io</h1>
                 <p class="tagline">Draw, guess, and have fun with friends!</p>
             </div>
             
@@ -119,7 +119,7 @@
                 <!-- Round End Overlay -->
                 <div class="round-overlay" id="roundOverlay">
                     <div class="round-content">
-                        <div class="round-result" id="roundResult">Word was: <span id="revealedWord">---</span></div>
+                        <div class="round-result">Word was: <span id="revealedWord">---</span></div>
                         <div class="round-scores" id="roundScores"></div>
                     </div>
                 </div>
@@ -176,10 +176,10 @@
                 </div>
             </div>
 
-            <!-- Side Panel (Players + Chat) -->
-            <div class="side-panel">
-                <!-- Players Panel -->
-                <div class="players-panel">
+            <!-- Bottom Panel: Players Left, Chat Right -->
+            <div class="bottom-panel">
+                <!-- Players Panel (Left Half) -->
+                <div class="players-panel-half">
                     <div class="panel-header">
                         <span class="header-icon">👥</span>
                         <span>PLAYERS</span>
@@ -188,8 +188,8 @@
                     <div class="players-list" id="playersList"></div>
                 </div>
                 
-                <!-- Chat Panel -->
-                <div class="chat-panel">
+                <!-- Chat Panel (Right Half) -->
+                <div class="chat-panel-half">
                     <div class="panel-header">
                         <span class="header-icon">💬</span>
                         <span>CHAT</span>
