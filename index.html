@@ -3,36 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#667eea">
-    <title>Skribbl Draw & Guess</title>
+    <title>Skribbl.io Clone</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- Background Animation -->
-    <div class="bg-animation" id="bgAnimation"></div>
-
     <!-- Login Screen -->
     <div id="loginScreen">
         <div class="login-container">
             <div class="logo-section">
                 <div class="logo-icon">🎨</div>
-                <h1>Skribbl.io4</h1>
-                <p class="tagline">Draw, guess, and have fun with friends!</p>
+                <h1>Skribbl.io</h1>
+                <p class="tagline">Draw, guess, and have fun!</p>
             </div>
             
             <div class="login-box">
                 <div class="input-group">
                     <label for="playerName">Your Name</label>
-                    <input type="text" id="playerName" placeholder="Enter your name" maxlength="12" autocomplete="off" inputmode="text">
+                    <input type="text" id="playerName" placeholder="Enter your name" maxlength="12" autocomplete="off">
                     <span class="input-hint">Max 12 characters</span>
                 </div>
                 
                 <div class="input-group">
-                    <label for="roomCode">Room Code (Optional)</label>
-                    <input type="text" id="roomCode" placeholder="Leave empty to create new room" maxlength="8" autocomplete="off" inputmode="text">
+                    <label for="roomCode">Room Code</label>
+                    <input type="text" id="roomCode" placeholder="Leave empty to create new room" maxlength="8" autocomplete="off">
                     <span class="input-hint">Join existing room or create new</span>
                 </div>
                 
@@ -56,7 +50,7 @@
 
     <!-- Game Screen -->
     <div id="gameScreen">
-        <!-- Top Bar - Skribbl.io Style -->
+        <!-- Top Bar -->
         <div class="top-bar">
             <div class="top-left">
                 <button class="home-btn" onclick="exitGame()" title="Leave Game">🏠</button>
@@ -79,18 +73,9 @@
         </div>
 
         <!-- Main Game Area -->
-        <div class="game-layout">
-            <!-- Left: Players -->
-            <div class="left-panel">
-                <div class="panel-header-compact">
-                    <span>👥 Players</span>
-                    <span id="playerCount">0/8</span>
-                </div>
-                <div class="players-list-compact" id="playersList"></div>
-            </div>
-
-            <!-- Center: Canvas -->
-            <div class="canvas-area">
+        <div class="game-area">
+            <!-- Canvas Section -->
+            <div class="canvas-section">
                 <div class="canvas-wrapper">
                     <canvas id="gameCanvas"></canvas>
                     
@@ -101,7 +86,7 @@
                     <div class="waiting-overlay" id="waitingOverlay">
                         <div class="waiting-content">
                             <div class="spinner"></div>
-                            <div>Waiting for drawer...</div>
+                            <div>Waiting for drawer to choose a word...</div>
                         </div>
                     </div>
                     
@@ -113,45 +98,57 @@
                             <div class="round-scores" id="roundScores"></div>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Toolbar -->
-                    <div class="toolbar" id="toolbar">
-                        <div class="tool-group">
-                            <button class="tool-btn" id="colorBtn" title="Color">
-                                <div class="color-preview" id="colorPreview"></div>
-                            </button>
-                            <button class="tool-btn" id="sizeBtn" title="Size">⚫</button>
-                            <button class="tool-btn active" id="brushBtn" title="Brush">✏️</button>
-                            <button class="tool-btn" id="eraserBtn" title="Eraser">🧼</button>
-                            <button class="tool-btn" id="bucketBtn" title="Fill">🪣</button>
-                            <button class="tool-btn" id="undoBtn" title="Undo">↩️</button>
-                            <button class="tool-btn danger" id="clearBtn" title="Clear">🗑️</button>
-                        </div>
+                <!-- Toolbar -->
+                <div class="toolbar" id="toolbar">
+                    <div class="tool-group">
+                        <button class="tool-btn" id="colorBtn" title="Color">
+                            <div class="color-preview" id="colorPreview"></div>
+                        </button>
+                        <button class="tool-btn" id="sizeBtn" title="Size">⚫</button>
+                        <button class="tool-btn active" id="brushBtn" title="Brush">✏️</button>
+                        <button class="tool-btn" id="eraserBtn" title="Eraser">🧼</button>
+                        <button class="tool-btn" id="bucketBtn" title="Fill">🪣</button>
+                        <button class="tool-btn" id="undoBtn" title="Undo">↩️</button>
+                        <button class="tool-btn danger" id="clearBtn" title="Clear">🗑️</button>
                     </div>
-                    
-                    <!-- Popups -->
-                    <div class="popup-overlay" id="popupOverlay"></div>
-                    <div class="popup color-popup" id="colorPopup">
-                        <div class="popup-header">Colors <button class="close-popup" onclick="closePopups()">×</button></div>
-                        <div class="color-grid" id="colorGrid"></div>
-                    </div>
-                    <div class="popup size-popup" id="sizePopup">
-                        <div class="popup-header">Size <button class="close-popup" onclick="closePopups()">×</button></div>
-                        <div class="size-options" id="sizeOptions"></div>
-                    </div>
+                </div>
+                
+                <!-- Popups -->
+                <div class="popup-overlay" id="popupOverlay"></div>
+                <div class="popup color-popup" id="colorPopup">
+                    <div class="popup-header">Colors <button class="close-popup" onclick="closePopups()">×</button></div>
+                    <div class="color-grid" id="colorGrid"></div>
+                </div>
+                <div class="popup size-popup" id="sizePopup">
+                    <div class="popup-header">Size <button class="close-popup" onclick="closePopups()">×</button></div>
+                    <div class="size-options" id="sizeOptions"></div>
                 </div>
             </div>
 
-            <!-- Right: Chat -->
-            <div class="right-panel">
-                <div class="panel-header-compact">
-                    <span>💬 Chat</span>
-                    <button onclick="clearChat()" class="clear-btn">🗑️</button>
+            <!-- Bottom Section: Players Left, Chat Right -->
+            <div class="bottom-section">
+                <!-- Players Panel -->
+                <div class="players-panel">
+                    <div class="panel-header">
+                        <span>👥 Players</span>
+                        <span id="playerCount">0/8</span>
+                    </div>
+                    <div class="players-list" id="playersList"></div>
                 </div>
-                <div class="chat-messages-compact" id="chatMessages"></div>
-                <div class="chat-input-compact">
-                    <input type="text" id="chatInput" placeholder="Type guess here..." maxlength="50" autocomplete="off" inputmode="text">
-                    <button onclick="sendMessage()" class="send-btn-small">➤</button>
+                
+                <!-- Chat Panel -->
+                <div class="chat-panel">
+                    <div class="panel-header">
+                        <span>💬 Chat</span>
+                        <button onclick="clearChat()" class="clear-btn">🗑️</button>
+                    </div>
+                    <div class="chat-messages" id="chatMessages"></div>
+                    <div class="chat-input-area">
+                        <input type="text" id="chatInput" placeholder="Type your guess here..." maxlength="50" autocomplete="off">
+                        <button onclick="sendMessage()" class="send-btn">➤</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -184,8 +181,8 @@
     <!-- Player Left Modal -->
     <div class="modal-overlay" id="playerLeftModal">
         <div class="player-left-content">
-            <h2 id="leftPlayerName">Player left</h2>
-            <p id="leftPlayerMessage">The drawer has left the game</p>
+            <h2 id="leftPlayerTitle">Player left</h2>
+            <p id="leftPlayerMessage">Someone left the game</p>
             <div class="word-was">The word was: <span id="leftWordReveal">---</span></div>
             <button onclick="continueGame()" class="continue-btn">Continue</button>
         </div>
