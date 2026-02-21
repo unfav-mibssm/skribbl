@@ -73,7 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initPullToRefresh();
     initKeyboardHandling();
     
-    const chatInput = document.getElementById('chatInput');
+    const chatInput = document.getElementById('input3');
     chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
     });
@@ -86,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initKeyboardHandling() {
-    const chatInput = document.getElementById('chatInput');
+    const chatInput = document.getElementById('input3');
     
     chatInput.addEventListener('focus', () => {
         isKeyboardOpen = true;
@@ -724,8 +724,9 @@ function handleRemoteDraw(data) {
 // ==========================================
 
 function joinGame() {
-    const name = document.getElementById('playerName').value.trim() || 'Player' + Math.floor(Math.random() * 1000);
-    const code = document.getElementById('roomCode').value.trim().toUpperCase();
+    // CRITICAL FIX: Use generic input IDs
+    const name = document.getElementById('input1').value.trim() || 'Player' + Math.floor(Math.random() * 1000);
+    const code = document.getElementById('input2').value.trim().toUpperCase();
     
     gameState.playerName = name;
     gameState.joinTime = Date.now();
@@ -875,7 +876,7 @@ function setupListeners() {
         
         gameState.lastPlayerCount = currentIds.length;
         
-        // CRITICAL FIX: Check start game on every player change
+        // Check start game on every player change
         checkStartGame();
     });
     
@@ -932,12 +933,18 @@ function handleDrawerLeft() {
     });
 }
 
-// CRITICAL FIX: Start game with 1+ players, first player becomes drawer immediately
+// CRITICAL FIX: Require 2+ players to start, show message if only 1
 function checkStartGame() {
     const playerIds = Object.keys(gameState.players);
+    const playerCount = playerIds.length;
     
-    // Need at least 1 player to start
-    if (playerIds.length === 0) return;
+    // Update waiting message based on player count
+    updateWaitingMessage(playerCount);
+    
+    // Need at least 2 players to start
+    if (playerCount < 2) {
+        return; // Don't start yet
+    }
     
     gameRef.once('value', (snap) => {
         const game = snap.val();
@@ -960,6 +967,23 @@ function checkStartGame() {
             round: 1
         });
     });
+}
+
+// CRITICAL FIX: Update waiting message based on player count
+function updateWaitingMessage(playerCount) {
+    const wordDisplay = document.getElementById('wordDisplay');
+    
+    if (!gameState.gameStarted || (gameState.game && gameState.game.state === 'waiting')) {
+        if (playerCount === 1) {
+            wordDisplay.textContent = 'Need 2+ players to start...';
+            wordDisplay.style.fontSize = '14px';
+            wordDisplay.style.letterSpacing = '1px';
+        } else if (playerCount >= 2) {
+            wordDisplay.textContent = 'Starting...';
+            wordDisplay.style.fontSize = '20px';
+            wordDisplay.style.letterSpacing = '6px';
+        }
+    }
 }
 
 function shouldShowMessage(msg) {
@@ -1029,6 +1053,8 @@ function handleGameChange(game) {
             waitingOverlay.classList.remove('show');
             roundOverlay.classList.remove('show');
             gameState.isGameActive = false;
+            // Update waiting message with current player count
+            updateWaitingMessage(Object.keys(gameState.players).length);
             break;
             
         case 'choosing':
@@ -1051,6 +1077,10 @@ function handleGameChange(game) {
             roundOverlay.classList.remove('show');
             wordModal.classList.remove('show');
             gameState.isGameActive = true;
+            
+            // Reset font size if it was changed for waiting message
+            document.getElementById('wordDisplay').style.fontSize = '';
+            document.getElementById('wordDisplay').style.letterSpacing = '';
             
             if (previousState === 'choosing' || game.timer === 80) {
                 gameState.hasGuessedCurrentWord = false;
@@ -1099,6 +1129,12 @@ function updateWordDisplay(word) {
     const wordDisplay = document.getElementById('wordDisplay');
     
     if (!word) {
+        // Don't override waiting message if in waiting state with < 2 players
+        const playerCount = Object.keys(gameState.players).length;
+        if ((!gameState.gameStarted || gameState.game?.state === 'waiting') && playerCount < 2) {
+            updateWaitingMessage(playerCount);
+            return;
+        }
         wordDisplay.textContent = 'Waiting...';
         return;
     }
@@ -1124,7 +1160,7 @@ function becomeDrawer() {
     document.getElementById('drawerBadge').classList.add('show');
     document.getElementById('toolbarContainer').classList.add('show');
     
-    const chatInput = document.getElementById('chatInput');
+    const chatInput = document.getElementById('input3');
     chatInput.placeholder = 'Chat with players...';
     chatInput.disabled = false;
     
@@ -1139,7 +1175,7 @@ function stopDrawer() {
     document.getElementById('toolbarContainer').classList.remove('show');
     document.getElementById('wordModal').classList.remove('show');
     
-    const chatInput = document.getElementById('chatInput');
+    const chatInput = document.getElementById('input3');
     chatInput.placeholder = 'Type your guess here...';
     chatInput.disabled = false;
 }
@@ -1288,7 +1324,7 @@ function endRound() {
 // ==========================================
 
 function sendMessage() {
-    const input = document.getElementById('chatInput');
+    const input = document.getElementById('input3');
     const text = input.value.trim();
     if (!text) return;
     
@@ -1592,4 +1628,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v12.0 - SINGLE PLAYER FIX!');
+console.log('🎮 Game engine v13.0 - 2+ PLAYERS REQUIRED!');
