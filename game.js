@@ -1,5 +1,5 @@
 // ==========================================
-// GAME ENGINE - ALL BUGS FIXED
+// GAME ENGINE - ALL BUGS FIXED INCLUDING DRAWER SELECTION
 // ==========================================
 
 let gameState = {
@@ -24,7 +24,7 @@ let gameState = {
     lastState: null,
     lastDrawer: null,
     lastRound: null,
-    hasGuessedWord: false  // NEW: Track if current player guessed
+    hasGuessedWord: false
 };
 
 let canvas, ctx;
@@ -39,8 +39,7 @@ let timerInterval = null;
 let autoRestartTimer = null;
 let wordSelectTimer = null;
 
-// REMOVED: Canvas backup system - using better approach
-let pendingDrawBuffer = []; // NEW: Buffer for strokes before remote player ready
+let pendingDrawBuffer = [];
 
 let roomRef, playersRef, chatRef, drawingRef, gameRef;
 
@@ -78,10 +77,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     document.getElementById('popupOverlay').addEventListener('click', closePopups);
     
-    // NEW: Prevent keyboard from resizing viewport
     if (window.visualViewport) {
         window.visualViewport.addEventListener('resize', () => {
-            // Prevent body scroll/resize
             document.body.style.height = '100dvh';
         });
     }
@@ -141,23 +138,19 @@ function initPullToRefresh() {
 }
 
 // ==========================================
-// CANVAS - FIXED: No more keyboard clearing
+// CANVAS
 // ==========================================
 
 function initCanvas() {
     canvas = document.getElementById('gameCanvas');
     ctx = canvas.getContext('2d', { willReadFrequently: true });
     
-    // CRITICAL FIX: Set canvas size once and maintain it
     const wrapper = document.querySelector('.canvas-wrapper');
     if (wrapper) {
         const rect = wrapper.getBoundingClientRect();
         canvas.width = rect.width;
         canvas.height = rect.height;
     }
-    
-    // REMOVED: resize listener that was causing issues
-    // Canvas maintains fixed size now
     
     canvas.addEventListener('mousedown', startDraw);
     canvas.addEventListener('mousemove', draw);
@@ -171,14 +164,11 @@ function initCanvas() {
     clearCanvas();
 }
 
-// REMOVED: resizeCanvas function - no longer needed
-// Canvas maintains fixed dimensions
-
 function clearCanvas() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     drawingHistory = [];
-    pendingDrawBuffer = []; // Clear buffer too
+    pendingDrawBuffer = [];
 }
 
 // ==========================================
@@ -265,7 +255,7 @@ function closePopups() {
 }
 
 // ==========================================
-// DRAWING FUNCTIONS - FIXED: All strokes visible
+// DRAWING FUNCTIONS
 // ==========================================
 
 function getPos(e) {
@@ -290,7 +280,7 @@ function getPos(e) {
 }
 
 let lastPoint = null;
-let currentStroke = null; // NEW: Track current stroke for buffering
+let currentStroke = null;
 
 function startDraw(e) {
     if (!gameState.isDrawer || !gameState.isGameActive) return;
@@ -317,7 +307,6 @@ function startDraw(e) {
     ctx.lineWidth = currentSize;
     ctx.strokeStyle = currentTool === 'eraser' ? '#ffffff' : currentColor;
     
-    // NEW: Create stroke object with unique ID
     currentStroke = {
         id: Date.now() + Math.random(),
         color: ctx.strokeStyle,
@@ -326,7 +315,6 @@ function startDraw(e) {
         startTime: Date.now()
     };
     
-    // CRITICAL FIX: Send immediately with batching protection
     sendDrawData('start', { 
         x: pos.x, 
         y: pos.y, 
@@ -361,7 +349,6 @@ function draw(e) {
             currentStroke.points.push({ x: pos.x, y: pos.y, t: Date.now() });
         }
         
-        // CRITICAL FIX: Send draw data immediately with timestamp
         sendDrawData('draw', { 
             x: pos.x, 
             y: pos.y, 
@@ -381,7 +368,6 @@ function endDraw(e) {
     
     if (currentStroke) {
         drawingHistory.push(currentStroke);
-        // Send end signal with stroke ID for verification
         sendDrawData('end', { strokeId: currentStroke.id });
         currentStroke = null;
     }
@@ -502,7 +488,7 @@ function redraw() {
 }
 
 // ==========================================
-// FIREBASE SYNC - FIXED: Reliable stroke delivery
+// FIREBASE SYNC
 // ==========================================
 
 function sendDrawData(type, data) {
@@ -512,14 +498,12 @@ function sendDrawData(type, data) {
         type: type,
         player: gameState.playerId,
         time: firebase.database.ServerValue.TIMESTAMP,
-        localTime: Date.now()  // NEW: Local timestamp for ordering
+        localTime: Date.now()
     };
     
     if (data) Object.assign(payload, data);
     
-    // CRITICAL FIX: Use set with priority for critical strokes, push for others
     if (type === 'start' || type === 'clear') {
-        // High priority - use set on a specific path to ensure delivery
         const priorityRef = drawingRef.child('stroke_' + Date.now());
         priorityRef.set(payload);
     } else {
@@ -528,12 +512,10 @@ function sendDrawData(type, data) {
 }
 
 function listenDrawing() {
-    // CRITICAL FIX: Listen to entire drawing node, not just child_added
     drawingRef.on('value', (snap) => {
         const data = snap.val();
         if (!data) return;
         
-        // Process all strokes in timestamp order
         const strokes = Object.entries(data)
             .filter(([key, val]) => val && val.player !== gameState.playerId)
             .sort((a, b) => (a[1].localTime || 0) - (b[1].localTime || 0));
@@ -544,16 +526,13 @@ function listenDrawing() {
     });
 }
 
-// Track received strokes to prevent duplicates
 let processedStrokes = new Set();
 
 function handleRemoteDraw(data) {
-    // Prevent duplicate processing
     const strokeKey = `${data.strokeId || ''}_${data.type}_${data.localTime || data.time}`;
     if (processedStrokes.has(strokeKey)) return;
     processedStrokes.add(strokeKey);
     
-    // Limit set size
     if (processedStrokes.size > 1000) {
         processedStrokes = new Set(Array.from(processedStrokes).slice(-500));
     }
@@ -577,7 +556,6 @@ function handleRemoteDraw(data) {
             
         case 'draw':
             if (!remoteStroke) {
-                // CRITICAL FIX: Create remote stroke if missing (missed start)
                 remoteStroke = {
                     lastX: data.lx,
                     lastY: data.ly,
@@ -616,15 +594,11 @@ function handleRemoteDraw(data) {
         case 'clear':
             clearCanvas();
             break;
-            
-        case 'undo':
-            // Handle remote undo if needed
-            break;
     }
 }
 
 // ==========================================
-// GAME LOGIC - FIXED: No restart on join
+// GAME LOGIC - FIXED DRAWER SELECTION
 // ==========================================
 
 function joinGame() {
@@ -697,7 +671,6 @@ function joinRoom(code) {
         drawingRef = roomRef.child('drawing');
         gameRef = roomRef.child('game');
         
-        // CRITICAL FIX: Don't reset game, just add player to existing game
         addPlayer(roomData);
     }, (err) => {
         showToast('Connection error: ' + err.message, 'error');
@@ -705,7 +678,6 @@ function joinRoom(code) {
     });
 }
 
-// CRITICAL FIX: Accept existing room data to preserve state
 function addPlayer(existingRoomData = null) {
     playersRef.child(gameState.playerId).set({
         name: gameState.playerName,
@@ -715,7 +687,6 @@ function addPlayer(existingRoomData = null) {
     }).then(() => {
         playersRef.child(gameState.playerId).onDisconnect().remove();
         
-        // If joining existing game, update player list but don't reset
         if (existingRoomData && existingRoomData.game) {
             const currentList = existingRoomData.game.playerList || [];
             if (!currentList.includes(gameState.playerId)) {
@@ -733,6 +704,9 @@ function addPlayer(existingRoomData = null) {
     });
 }
 
+// ==========================================
+// CRITICAL FIX: Setup Listeners - Fixed drawer selection
+// ==========================================
 function setupListeners() {
     playersRef.on('value', (snap) => {
         const previousPlayers = { ...gameState.players };
@@ -775,13 +749,14 @@ function setupListeners() {
         
         gameState.lastPlayerCount = currentIds.length;
         
-        // CRITICAL FIX: Only start game if in waiting state and have 2+ players
-        gameRef.once('value', (gameSnap) => {
-            const game = gameSnap.val();
-            if (game && game.state === 'waiting' && currentIds.length >= 2) {
-                checkStartGame();
-            }
-        });
+        // CRITICAL FIX: Check if we need to start game
+        // Only the first player (creator) should trigger game start
+        const playerIds = Object.keys(gameState.players);
+        const isFirstPlayer = playerIds.length > 0 && playerIds[0] === gameState.playerId;
+        
+        if (isFirstPlayer && playerIds.length >= 2 && !gameState.gameStarted) {
+            checkStartGame();
+        }
     });
     
     chatRef.limitToLast(100).on('child_added', (snap) => {
@@ -795,6 +770,7 @@ function setupListeners() {
         }
     });
     
+    // CRITICAL FIX: Listen to game state changes properly
     gameRef.on('value', (snap) => {
         const game = snap.val();
         if (game) {
@@ -832,9 +808,9 @@ function handleDrawerLeft() {
     });
 }
 
-// CRITICAL FIX: Only start if not already started
+// CRITICAL FIX: Properly start the game with first drawer
 function checkStartGame() {
-    if (gameState.gameStarted) return; // Don't restart if already running
+    if (gameState.gameStarted) return;
     
     const playerIds = Object.keys(gameState.players);
     
@@ -843,14 +819,23 @@ function checkStartGame() {
         
         const firstPlayer = playerIds[0];
         
+        console.log('🎮 Starting game! First drawer:', firstPlayer);
+        
+        // CRITICAL: Set game to choosing state with first drawer
         gameRef.update({
             state: 'choosing',
             playerList: playerIds,
             currentDrawerIndex: 0,
             drawer: firstPlayer,
-            round: 1
+            round: 1,
+            timer: 80,
+            word: null,
+            allGuessed: false
         }).then(() => {
             gameState.gameStarted = true;
+            console.log('✅ Game started successfully');
+        }).catch(err => {
+            console.error('❌ Failed to start game:', err);
         });
     }
 }
@@ -878,13 +863,13 @@ function shouldShowMessage(msg) {
 }
 
 // ==========================================
-// CRITICAL FIX: handleGameChange - Fixed round order
+// CRITICAL FIX: handleGameChange - Proper state handling
 // ==========================================
 function handleGameChange(game) {
-    // CRITICAL FIX: Validate round number - prevent going backwards
+    // Validate round number
     if (game.round < gameState.round && gameState.round > 1) {
         console.warn('Invalid round transition prevented:', gameState.round, '->', game.round);
-        return; // Ignore invalid state updates
+        return;
     }
     
     const previousState = gameState.lastState;
@@ -898,7 +883,6 @@ function handleGameChange(game) {
     gameState.playerList = game.playerList || Object.keys(gameState.players);
     gameState.currentDrawerIndex = game.currentDrawerIndex || 0;
     
-    // Update tracking
     gameState.lastState = game.state;
     gameState.lastDrawer = game.drawer;
     gameState.lastRound = game.round;
@@ -907,11 +891,10 @@ function handleGameChange(game) {
     document.getElementById('timerDisplay').textContent = game.timer || 80;
     
     const wasDrawer = gameState.isDrawer;
-    const wasActive = gameState.isGameActive;
     gameState.isDrawer = game.drawer === gameState.playerId;
     gameState.currentWord = game.word;
     
-    // CRITICAL FIX: Update word display with revealed letters for guessers
+    // Update word display
     updateWordDisplay(game.word, gameState.hasGuessedWord);
     
     const waitingOverlay = document.getElementById('waitingOverlay');
@@ -923,16 +906,16 @@ function handleGameChange(game) {
     const drawerChanged = game.drawer !== previousDrawer;
     const roundChanged = game.round !== previousRound;
     
-    // Always update UI on meaningful changes
     if (!stateChanged && !drawerChanged && !roundChanged && wasDrawer === gameState.isDrawer) {
-        // Only update timer if that's all that changed
         return;
     }
     
-    // CRITICAL FIX: Reset hasGuessedWord on new round
+    // Reset hasGuessedWord on new round
     if (roundChanged) {
         gameState.hasGuessedWord = false;
     }
+    
+    console.log('🔄 Game state:', game.state, '| Drawer:', game.drawer, '| Me:', gameState.playerId, '| isDrawer:', gameState.isDrawer);
     
     switch(game.state) {
         case 'waiting':
@@ -944,9 +927,7 @@ function handleGameChange(game) {
         case 'choosing':
             if (gameState.isDrawer) {
                 waitingOverlay.classList.remove('show');
-                // Only show if not already showing
                 if (!wordModal.classList.contains('show')) {
-                    // Clear any existing timer
                     if (wordSelectTimer) clearInterval(wordSelectTimer);
                     setTimeout(() => showWordSelect(), 100);
                 }
@@ -970,7 +951,6 @@ function handleGameChange(game) {
                     playersRef.child(gameState.playerId).update({ hasGuessed: false });
                     gameState.hasGuessedWord = false;
                 }
-                // Clear canvas for new round
                 if (gameState.isDrawer) {
                     clearCanvas();
                 }
@@ -1006,7 +986,6 @@ function handleGameChange(game) {
     }
 }
 
-// NEW: Update word display with revealed letters
 function updateWordDisplay(word, hasGuessed) {
     const wordDisplay = document.getElementById('wordDisplay');
     
@@ -1016,11 +995,9 @@ function updateWordDisplay(word, hasGuessed) {
     }
     
     if (gameState.isDrawer || hasGuessed) {
-        // Show full word
         wordDisplay.textContent = word.toUpperCase();
-        wordDisplay.style.color = 'var(--success)'; // Green for revealed
+        wordDisplay.style.color = 'var(--success)';
     } else {
-        // Show underscores
         const display = word.split('').map(c => c === ' ' ? ' ' : '_').join(' ');
         wordDisplay.textContent = display;
         wordDisplay.style.color = 'var(--accent)';
@@ -1109,7 +1086,6 @@ function startTimer() {
                 return;
             }
             
-            // Only update if I'm the drawer
             if (game.drawer !== gameState.playerId) {
                 return;
             }
@@ -1146,7 +1122,6 @@ function endRound() {
             return;
         }
         
-        // Find next valid drawer
         let attempts = 0;
         while (attempts < playerList.length && !gameState.players[playerList[nextIndex]]) {
             nextIndex = (nextIndex + 1) % playerList.length;
@@ -1178,7 +1153,7 @@ function endRound() {
 }
 
 // ==========================================
-// CHAT - FIXED: Word reveal for guesser
+// CHAT
 // ==========================================
 
 function sendMessage() {
@@ -1227,7 +1202,6 @@ function handleCorrectGuess() {
     
     const points = Math.max(10, Math.floor(gameState.timer / 8) * 10);
     
-    // CRITICAL FIX: Update local state immediately
     gameState.hasGuessedWord = true;
     
     playersRef.child(gameState.playerId).update({
@@ -1235,7 +1209,6 @@ function handleCorrectGuess() {
         hasGuessed: true
     });
     
-    // Update word display immediately
     updateWordDisplay(gameState.currentWord, true);
     
     sendChat('correct', `guessed correctly! (+${points})`);
@@ -1413,9 +1386,6 @@ function showGame(code) {
     
     playSound('enter');
     
-    // CRITICAL FIX: Don't resize canvas here - keep fixed size
-    // Canvas was already sized in initCanvas
-    
     sendChat('system', `${gameState.playerName} joined!`);
 }
 
@@ -1474,4 +1444,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v11.0 - ALL BUGS FIXED!');
+console.log('🎮 Game engine v12.0 - DRAWER SELECTION FIXED!');
