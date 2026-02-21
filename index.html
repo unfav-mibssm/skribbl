@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
     <title>Skribbl.io Clone</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -13,7 +13,7 @@
         <div class="login-container">
             <div class="logo-section">
                 <div class="logo-icon">🎨</div>
-                <h1>Skribbl.io10</h1>
+                <h1>Skribbl.io11</h1>
                 <p class="tagline">Draw, guess, and have fun!</p>
             </div>
             
@@ -146,7 +146,7 @@
                         <span>💬 Chat</span>
                     </div>
                     <div class="chat-messages" id="chatMessages"></div>
-                    <div class="chat-input-area">
+                    <div class="chat-input-area" id="chatInputArea">
                         <input type="text" id="chatInput" placeholder="Type your guess here..." maxlength="50" autocomplete="off">
                         <button onclick="sendMessage()" class="send-btn">➤</button>
                     </div>
@@ -166,7 +166,7 @@
         </div>
     </div>
 
-    <!-- Game Over Modal - WITH WINNER DISPLAY -->
+    <!-- Game Over Modal -->
     <div class="game-over-modal" id="gameOverModal">
         <div class="game-over-content">
             <div class="trophy" id="winnerTrophy">🏆</div>
