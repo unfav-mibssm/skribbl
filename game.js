@@ -1,5 +1,5 @@
 // ==========================================
-// GAME ENGINE v15.0 - ALL BUGS FIXED
+// GAME ENGINE - CRITICAL BUG FIXES
 // ==========================================
 
 let gameState = {
@@ -16,10 +16,14 @@ let gameState = {
     currentDrawerIndex: 0,
     isGameActive: false,
     allGuessed: false,
-    isHost: false,
+    lastPlayerCount: 0,
+    leftPlayerName: null,
+    gameStarted: false,
     joinTime: null,
-    hasGuessedCurrentWord: false,
-    gameStarted: false
+    hasShownGame: false,
+    lastState: null,
+    lastDrawer: null,
+    lastRound: null
 };
 
 let canvas, ctx;
@@ -29,20 +33,17 @@ let currentColor = '#000000';
 let currentSize = 4;
 let drawingHistory = [];
 let lastDrawTime = 0;
-let remoteStrokes = {}; // FIXED: Per-player remote strokes
+let remoteStroke = null;
 let timerInterval = null;
 let autoRestartTimer = null;
-let wordSelectTimer = null;
-let isTabActive = true;
-let pendingDrawBuffer = [];
 
+// FIX: Store canvas content to restore after keyboard
 let canvasBackup = null;
 let isKeyboardOpen = false;
 
-let roomRef, playersRef, chatRef, drawingRef, gameRef, hostRef;
+let roomRef, playersRef, chatRef, drawingRef, gameRef;
 
 let sounds = {};
-let audioContext = null;
 
 const colors = [
     '#000000', '#2c3e50', '#8e44ad', '#c0392b', '#d35400',
@@ -70,73 +71,63 @@ document.addEventListener('DOMContentLoaded', () => {
     initSounds();
     initPullToRefresh();
     initKeyboardHandling();
-    initVisibilityAPI();
     
-    const chatInput = document.getElementById('chatInput');
-    chatInput.addEventListener('keypress', (e) => {
+    document.getElementById('chatInput').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
     });
     
     document.getElementById('popupOverlay').addEventListener('click', closePopups);
-    
-    // FIXED: Handle page unload properly
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('unload', handleUnload);
 });
 
-// FIXED: Page Visibility API to pause timers when tab hidden
-function initVisibilityAPI() {
-    document.addEventListener('visibilitychange', () => {
-        isTabActive = !document.hidden;
-    });
-}
-
+// NEW: Handle keyboard opening/closing to preserve canvas
 function initKeyboardHandling() {
     const chatInput = document.getElementById('chatInput');
     
     chatInput.addEventListener('focus', () => {
         isKeyboardOpen = true;
-        saveCanvasBackup();
+        if (canvas && ctx) {
+            try {
+                canvasBackup = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            } catch(e) {
+                console.log('Could not backup canvas');
+            }
+        }
     });
     
     chatInput.addEventListener('blur', () => {
         isKeyboardOpen = false;
-        restoreCanvasWithDelay();
-    });
-    
-    if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', handleViewportResize);
-    }
-}
-
-function handleViewportResize() {
-    if (!isKeyboardOpen && !canvasBackup) {
-        setTimeout(resizeCanvas, 100);
-    }
-}
-
-function saveCanvasBackup() {
-    if (canvas && ctx && canvas.width > 0) {
-        try {
-            canvasBackup = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        } catch(e) {
-            console.error('Canvas backup failed:', e);
-        }
-    }
-}
-
-function restoreCanvasWithDelay() {
-    const delays = [0, 100, 300, 500];
-    delays.forEach(delay => {
         setTimeout(() => {
             if (canvasBackup && ctx) {
                 try {
                     ctx.putImageData(canvasBackup, 0, 0);
-                } catch(e) {}
+                } catch(e) {
+                    console.log('Could not restore canvas');
+                }
             }
             redraw();
-        }, delay);
+        }, 100);
     });
+    
+    if (window.visualViewport) {
+        let lastHeight = window.visualViewport.height;
+        
+        window.visualViewport.addEventListener('resize', () => {
+            const newHeight = window.visualViewport.height;
+            const heightDiff = lastHeight - newHeight;
+            
+            if (heightDiff > 150) {
+                isKeyboardOpen = true;
+                document.body.style.height = `${newHeight}px`;
+            } else if (heightDiff < -150) {
+                isKeyboardOpen = false;
+                document.body.style.height = '100dvh';
+                setTimeout(() => {
+                    redraw();
+                }, 100);
+            }
+            lastHeight = newHeight;
+        });
+    }
 }
 
 function initSounds() {
@@ -145,41 +136,14 @@ function initSounds() {
     sounds.roundEnd = document.getElementById('soundRoundEnd');
     sounds.leave = document.getElementById('soundLeave');
     sounds.enter = document.getElementById('soundEnter');
-    
-    // FIXED: Initialize audio context on first user interaction
-    document.addEventListener('click', initAudioContext, { once: true });
-    document.addEventListener('touchstart', initAudioContext, { once: true });
-}
-
-function initAudioContext() {
-    if (!audioContext) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        if (audioContext.state === 'suspended') {
-            audioContext.resume();
-        }
-    }
 }
 
 function playSound(soundName) {
     const sound = sounds[soundName];
-    if (!sound) return;
-    
-    // FIXED: Handle autoplay restrictions
-    if (audioContext && audioContext.state === 'suspended') {
-        audioContext.resume().then(() => {
-            playSoundInternal(sound);
-        });
-    } else {
-        playSoundInternal(sound);
+    if (sound) {
+        sound.currentTime = 0;
+        sound.play().catch(e => console.log('Sound play failed:', e));
     }
-}
-
-function playSoundInternal(sound) {
-    sound.currentTime = 0;
-    sound.play().catch(e => {
-        // Silently fail if autoplay blocked
-        console.log('Sound play failed:', e.message);
-    });
 }
 
 function initPullToRefresh() {
@@ -220,7 +184,7 @@ function initPullToRefresh() {
 }
 
 // ==========================================
-// CANVAS - FIXED
+// CANVAS - FIXED TO NOT CLEAR ON KEYBOARD
 // ==========================================
 
 function initCanvas() {
@@ -236,20 +200,17 @@ function initCanvas() {
             if (!isKeyboardOpen && !canvasBackup) {
                 resizeCanvas();
             }
-        }, 250);
+        }, 100);
     });
     
-    // Mouse events
     canvas.addEventListener('mousedown', startDraw);
     canvas.addEventListener('mousemove', draw);
     canvas.addEventListener('mouseup', endDraw);
     canvas.addEventListener('mouseleave', endDraw);
     
-    // Touch events - FIXED: proper touch handling
     canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
     canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
-    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
-    canvas.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+    canvas.addEventListener('touchend', endDraw, { passive: false });
     
     clearCanvas();
 }
@@ -258,7 +219,11 @@ function resizeCanvas() {
     const wrapper = document.querySelector('.canvas-wrapper');
     if (!wrapper) return;
     
-    if (canvasBackup || isKeyboardOpen) return;
+    // CRITICAL FIX: Don't resize if we have a backup (keyboard was open)
+    if (canvasBackup) {
+        console.log('Skipping resize - keyboard backup exists');
+        return;
+    }
     
     const wrapperWidth = wrapper.clientWidth;
     const wrapperHeight = wrapper.clientHeight;
@@ -271,7 +236,6 @@ function resizeCanvas() {
         width = height / 0.75;
     }
     
-    // Only resize if significant change
     if (Math.abs(canvas.width - width) > 5 || Math.abs(canvas.height - height) > 5) {
         let savedData = null;
         if (ctx && canvas.width > 0 && canvas.height > 0) {
@@ -292,8 +256,6 @@ function resizeCanvas() {
             } catch(e) {
                 redraw();
             }
-        } else {
-            clearCanvas();
         }
     }
 }
@@ -302,7 +264,7 @@ function clearCanvas() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     drawingHistory = [];
-    pendingDrawBuffer = [];
+    canvasBackup = null;
 }
 
 // ==========================================
@@ -358,7 +320,6 @@ function initToolbar() {
     document.getElementById('undoBtn').onclick = undo;
     document.getElementById('clearBtn').onclick = () => {
         clearCanvas();
-        canvasBackup = null;
         sendDrawData('clear');
     };
 }
@@ -390,7 +351,7 @@ function closePopups() {
 }
 
 // ==========================================
-// DRAWING FUNCTIONS - FIXED
+// DRAWING FUNCTIONS
 // ==========================================
 
 function getPos(e) {
@@ -400,9 +361,6 @@ function getPos(e) {
     if (e.touches && e.touches.length > 0) {
         clientX = e.touches[0].clientX;
         clientY = e.touches[0].clientY;
-    } else if (e.changedTouches && e.changedTouches.length > 0) {
-        clientX = e.changedTouches[0].clientX;
-        clientY = e.changedTouches[0].clientY;
     } else {
         clientX = e.clientX;
         clientY = e.clientY;
@@ -418,25 +376,18 @@ function getPos(e) {
 }
 
 let lastPoint = null;
-let currentStroke = null;
-let isProcessingFill = false;
 
 function startDraw(e) {
     if (!gameState.isDrawer || !gameState.isGameActive) return;
-    if (isProcessingFill) return;
-    
     e.preventDefault();
-    e.stopPropagation();
     
     const pos = getPos(e);
     
     if (pos.x < 0 || pos.x > canvas.width || pos.y < 0 || pos.y > canvas.height) return;
     
     if (currentTool === 'bucket') {
-        isProcessingFill = true;
         floodFill(Math.floor(pos.x), Math.floor(pos.y), currentColor);
         sendDrawData('fill', { x: Math.floor(pos.x), y: Math.floor(pos.y), color: currentColor });
-        setTimeout(() => { isProcessingFill = false; }, 100);
         return;
     }
     
@@ -451,24 +402,19 @@ function startDraw(e) {
     ctx.lineWidth = currentSize;
     ctx.strokeStyle = currentTool === 'eraser' ? '#ffffff' : currentColor;
     
-    currentStroke = {
+    const stroke = {
         color: ctx.strokeStyle,
         size: currentSize,
         points: [{ x: pos.x, y: pos.y }]
     };
+    drawingHistory.push(stroke);
     
-    sendDrawData('start', { 
-        x: pos.x, 
-        y: pos.y, 
-        color: currentStroke.color, 
-        size: currentStroke.size 
-    });
+    sendDrawData('start', { x: pos.x, y: pos.y, color: stroke.color, size: stroke.size });
 }
 
 function draw(e) {
     if (!isDrawing || !gameState.isDrawer) return;
     e.preventDefault();
-    e.stopPropagation();
     
     const pos = getPos(e);
     
@@ -486,21 +432,11 @@ function draw(e) {
         ctx.beginPath();
         ctx.moveTo(midX, midY);
         
-        if (currentStroke) {
-            currentStroke.points.push({ x: pos.x, y: pos.y });
+        if (drawingHistory.length > 0) {
+            drawingHistory[drawingHistory.length - 1].points.push({ x: pos.x, y: pos.y });
         }
         
-        // FIXED: Throttle draw data to reduce Firebase writes
-        const now = Date.now();
-        if (now - lastDrawTime > 50) { // Max 20 updates/sec
-            sendDrawData('draw', { 
-                x: pos.x, 
-                y: pos.y, 
-                lx: lastPoint.x, 
-                ly: lastPoint.y 
-            });
-            lastDrawTime = now;
-        }
+        sendDrawData('draw', { x: pos.x, y: pos.y, lx: lastPoint.x, ly: lastPoint.y });
     }
     
     lastPoint = pos;
@@ -511,55 +447,31 @@ function endDraw(e) {
     isDrawing = false;
     lastPoint = null;
     ctx.beginPath();
-    
-    if (currentStroke && currentStroke.points.length > 1) {
-        drawingHistory.push(currentStroke);
-        // FIXED: Limit history to prevent memory issues
-        if (drawingHistory.length > 50) {
-            drawingHistory.shift();
-        }
-    }
-    currentStroke = null;
-    
     sendDrawData('end');
 }
 
-// FIXED: Proper touch handling
 function handleTouchStart(e) {
-    if (e.touches.length === 1) {
-        e.preventDefault();
-        const touch = e.touches[0];
-        const mouseEvent = new MouseEvent('mousedown', {
-            clientX: touch.clientX,
-            clientY: touch.clientY,
-            bubbles: true
-        });
-        canvas.dispatchEvent(mouseEvent);
-    }
-}
-
-function handleTouchMove(e) {
-    if (e.touches.length === 1) {
-        e.preventDefault();
-        const touch = e.touches[0];
-        const mouseEvent = new MouseEvent('mousemove', {
-            clientX: touch.clientX,
-            clientY: touch.clientY,
-            bubbles: true
-        });
-        canvas.dispatchEvent(mouseEvent);
-    }
-}
-
-function handleTouchEnd(e) {
     e.preventDefault();
-    const mouseEvent = new MouseEvent('mouseup', {
+    const touch = e.touches[0];
+    const mouseEvent = new MouseEvent('mousedown', {
+        clientX: touch.clientX,
+        clientY: touch.clientY,
         bubbles: true
     });
     canvas.dispatchEvent(mouseEvent);
 }
 
-// FIXED: Optimized flood fill with stack limit
+function handleTouchMove(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const mouseEvent = new MouseEvent('mousemove', {
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        bubbles: true
+    });
+    canvas.dispatchEvent(mouseEvent);
+}
+
 function floodFill(startX, startY, fillColor) {
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
@@ -570,6 +482,7 @@ function floodFill(startX, startY, fillColor) {
     const targetR = data[startPos];
     const targetG = data[startPos + 1];
     const targetB = data[startPos + 2];
+    const targetA = data[startPos + 3];
     
     const fill = hexToRgb(fillColor);
     if (!fill) return;
@@ -579,12 +492,8 @@ function floodFill(startX, startY, fillColor) {
     const visited = new Set();
     const key = (x, y) => `${x},${y}`;
     const tolerance = 32;
-    const maxIterations = 100000; // FIXED: Prevent infinite loop
     
-    let iterations = 0;
-    
-    while (stack.length > 0 && iterations < maxIterations) {
-        iterations++;
+    while (stack.length > 0) {
         const [x, y] = stack.pop();
         const k = key(x, y);
         
@@ -592,7 +501,7 @@ function floodFill(startX, startY, fillColor) {
         if (x < 0 || x >= width || y < 0 || y >= height) continue;
         
         const pos = (y * width + x) * 4;
-        const r = data[pos], g = data[pos + 1], b = data[pos + 2];
+        const r = data[pos], g = data[pos + 1], b = data[pos + 2], a = data[pos + 3];
         
         if (Math.abs(r - targetR) > tolerance || 
             Math.abs(g - targetG) > tolerance || 
@@ -632,7 +541,7 @@ function redraw() {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     drawingHistory.forEach(stroke => {
-        if (!stroke.points || stroke.points.length < 2) return;
+        if (stroke.points.length < 2) return;
         
         ctx.beginPath();
         ctx.lineCap = 'round';
@@ -648,123 +557,50 @@ function redraw() {
             ctx.quadraticCurveTo(stroke.points[i].x, stroke.points[i].y, midX, midY);
         }
         
-        if (stroke.points.length > 1) {
-            ctx.lineTo(stroke.points[stroke.points.length - 1].x, stroke.points[stroke.points.length - 1].y);
-        }
-        
         ctx.stroke();
     });
 }
 
 // ==========================================
-// FIREBASE SYNC - FIXED
+// FIREBASE SYNC
 // ==========================================
 
-// FIXED: Throttled draw data sender
-let drawQueue = [];
-let drawQueueTimeout = null;
-
 function sendDrawData(type, data) {
-    if (!roomRef || !drawingRef) return;
+    if (!roomRef) return;
     
     const payload = {
         type: type,
         player: gameState.playerId,
-        timestamp: firebase.database.ServerValue.TIMESTAMP,
-        seq: Date.now()
+        time: firebase.database.ServerValue.TIMESTAMP
     };
     
     if (data) Object.assign(payload, data);
     
-    // Queue draw operations
-    drawQueue.push(payload);
-    
-    if (!drawQueueTimeout) {
-        drawQueueTimeout = setTimeout(flushDrawQueue, 30); // Batch every 30ms
-    }
-}
-
-function flushDrawQueue() {
-    if (drawQueue.length === 0) {
-        drawQueueTimeout = null;
-        return;
-    }
-    
-    // Send only last 'draw' operation per batch to reduce writes
-    const optimized = [];
-    let lastDraw = null;
-    
-    drawQueue.forEach(op => {
-        if (op.type === 'draw') {
-            lastDraw = op;
-        } else {
-            if (lastDraw) {
-                optimized.push(lastDraw);
-                lastDraw = null;
-            }
-            optimized.push(op);
-        }
-    });
-    
-    if (lastDraw) optimized.push(lastDraw);
-    
-    // Send in small batches
-    const batch = optimized.slice(0, 10);
-    batch.forEach(payload => {
-        drawingRef.push(payload).catch(err => {
-            console.error('Failed to send draw data:', err);
-        });
-    });
-    
-    drawQueue = optimized.slice(10);
-    drawQueueTimeout = drawQueue.length > 0 ? setTimeout(flushDrawQueue, 30) : null;
+    drawingRef.push(payload);
 }
 
 function listenDrawing() {
-    // FIXED: Use 'child_added' with limit for performance
-    drawingRef.limitToLast(100).on('child_added', (snap) => {
-        const data = snap.val();
-        if (!data) return;
-        if (data.player === gameState.playerId) return;
-        
-        // Buffer remote draws for smooth playback
-        pendingDrawBuffer.push(data);
-        if (!isProcessingRemoteDraws) {
-            processRemoteDrawBuffer();
+    gameRef.child('state').on('value', (snap) => {
+        const state = snap.val();
+        if (state === 'drawing' && !gameState.isDrawer) {
+            setTimeout(() => {
+                clearCanvas();
+                remoteStroke = null;
+            }, 100);
         }
+    });
+    
+    drawingRef.on('child_added', (snap) => {
+        const data = snap.val();
+        if (!data || data.player === gameState.playerId) return;
+        handleRemoteDraw(data);
     });
 }
 
-let isProcessingRemoteDraws = false;
-
-function processRemoteDrawBuffer() {
-    isProcessingRemoteDraws = true;
-    
-    const processNext = () => {
-        if (pendingDrawBuffer.length === 0) {
-            isProcessingRemoteDraws = false;
-            return;
-        }
-        
-        const data = pendingDrawBuffer.shift();
-        handleRemoteDraw(data);
-        
-        // Process at 60fps max
-        requestAnimationFrame(processNext);
-    };
-    
-    processNext();
-}
-
 function handleRemoteDraw(data) {
-    if (!data || !data.type) return;
-    
-    // FIXED: Per-player remote stroke tracking
-    const playerId = data.player;
-    
     switch(data.type) {
         case 'start':
-            remoteStrokes[playerId] = {
+            remoteStroke = {
                 color: data.color,
                 size: data.size,
                 lastX: data.x,
@@ -779,36 +615,22 @@ function handleRemoteDraw(data) {
             break;
             
         case 'draw':
-            if (!remoteStrokes[playerId]) {
-                remoteStrokes[playerId] = {
-                    color: data.color || '#000000',
-                    size: data.size || 4,
-                    lastX: data.lx,
-                    lastY: data.ly
-                };
-                ctx.beginPath();
-                ctx.moveTo(data.lx, data.ly);
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
-                ctx.lineWidth = remoteStrokes[playerId].size;
-                ctx.strokeStyle = remoteStrokes[playerId].color;
-            }
+            if (!remoteStroke) return;
             
-            const stroke = remoteStrokes[playerId];
-            const midX = (stroke.lastX + data.x) / 2;
-            const midY = (stroke.lastY + data.y) / 2;
+            const midX = (remoteStroke.lastX + data.x) / 2;
+            const midY = (remoteStroke.lastY + data.y) / 2;
             
-            ctx.quadraticCurveTo(stroke.lastX, stroke.lastY, midX, midY);
+            ctx.quadraticCurveTo(remoteStroke.lastX, remoteStroke.lastY, midX, midY);
             ctx.stroke();
             ctx.beginPath();
             ctx.moveTo(midX, midY);
             
-            stroke.lastX = data.x;
-            stroke.lastY = data.y;
+            remoteStroke.lastX = data.x;
+            remoteStroke.lastY = data.y;
             break;
             
         case 'end':
-            remoteStrokes[playerId] = null;
+            remoteStroke = null;
             ctx.beginPath();
             break;
             
@@ -819,29 +641,16 @@ function handleRemoteDraw(data) {
         case 'clear':
             clearCanvas();
             break;
-            
-        case 'undo':
-            // Remote undo not implemented (would need full history sync)
-            break;
     }
 }
 
 // ==========================================
-// GAME LOGIC - CRITICAL FIXES
+// GAME LOGIC
 // ==========================================
 
 function joinGame() {
-    const nameInput = document.getElementById('playerName');
-    const codeInput = document.getElementById('roomCode');
-    
-    // FIXED: Input sanitization
-    let name = nameInput.value.trim().substring(0, 12);
-    if (!name) name = 'Player' + Math.floor(Math.random() * 1000);
-    
-    // Remove HTML tags
-    name = name.replace(/[<>]/g, '');
-    
-    let code = codeInput.value.trim().toUpperCase().substring(0, 4);
+    const name = document.getElementById('playerName').value.trim() || 'Player' + Math.floor(Math.random() * 1000);
+    const code = document.getElementById('roomCode').value.trim().toUpperCase();
     
     gameState.playerName = name;
     gameState.joinTime = Date.now();
@@ -857,58 +666,41 @@ function joinGame() {
 function generateCode() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     let code = '';
-    for (let i = 0; i < 4; i++) {
-        code += chars[Math.floor(Math.random() * chars.length)];
-    }
+    for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
     return code;
 }
 
-// FIXED: Atomic room creation with transaction
 function createRoom(code) {
     gameState.roomCode = code;
-    gameState.playerId = 'p_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    gameState.playerId = 'p_' + Date.now();
     
     roomRef = database.ref('rooms/' + code);
     playersRef = roomRef.child('players');
     chatRef = roomRef.child('chat');
     drawingRef = roomRef.child('drawing');
     gameRef = roomRef.child('game');
-    hostRef = roomRef.child('host');
     
-    // FIXED: Set host and check if room exists
-    hostRef.set({
-        id: gameState.playerId,
-        timestamp: firebase.database.ServerValue.TIMESTAMP
+    roomRef.set({
+        created: Date.now(),
+        state: 'waiting',
+        round: 1,
+        maxRounds: 10,
+        currentDrawerIndex: 0,
+        drawer: null,
+        word: null,
+        allGuessed: false,
+        playerList: []
     }).then(() => {
-        // Host set successfully, now create room
-        return roomRef.set({
-            created: Date.now(),
-            state: 'waiting',
-            round: 1,
-            maxRounds: 10,
-            currentDrawerIndex: 0,
-            drawer: null,
-            word: null,
-            allGuessed: false,
-            playerList: [gameState.playerId] // FIXED: Initialize with first player
-        });
-    }).then(() => {
-        gameState.isHost = true;
         addPlayer();
     }).catch(err => {
-        // Room might exist, try different code
-        if (err.code === 'PERMISSION_DENIED' || err.message.includes('exists')) {
-            createRoom(generateCode());
-        } else {
-            showToast('Error creating room: ' + err.message, 'error');
-            document.getElementById('loadingOverlay').classList.remove('show');
-        }
+        showToast('Error creating room: ' + err.message, 'error');
+        document.getElementById('loadingOverlay').classList.remove('show');
     });
 }
 
 function joinRoom(code) {
     gameState.roomCode = code;
-    gameState.playerId = 'p_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    gameState.playerId = 'p_' + Date.now();
     
     roomRef = database.ref('rooms/' + code);
     
@@ -919,59 +711,26 @@ function joinRoom(code) {
             return;
         }
         
-        const roomData = snap.val();
-        
-        // FIXED: Check player limit
-        const playerCount = roomData.playerList ? roomData.playerList.length : 0;
-        if (playerCount >= 8) {
-            showToast('Room is full (8/8 players)!', 'error');
-            document.getElementById('loadingOverlay').classList.remove('show');
-            return;
-        }
-        
         playersRef = roomRef.child('players');
         chatRef = roomRef.child('chat');
         drawingRef = roomRef.child('drawing');
         gameRef = roomRef.child('game');
-        hostRef = roomRef.child('host');
         
-        // FIXED: Add to playerList atomically
-        const newList = roomData.playerList || [];
-        newList.push(gameState.playerId);
-        
-        gameRef.update({ playerList: newList }).then(() => {
-            addPlayer(roomData);
-        });
-        
+        addPlayer();
     }, (err) => {
         showToast('Connection error: ' + err.message, 'error');
         document.getElementById('loadingOverlay').classList.remove('show');
     });
 }
 
-function addPlayer(existingRoomData = null) {
-    const playerData = {
+function addPlayer() {
+    playersRef.child(gameState.playerId).set({
         name: gameState.playerName,
         score: 0,
         joined: Date.now(),
-        hasGuessed: false,
-        guessedCurrentWord: false,
-        isOnline: true
-    };
-    
-    // FIXED: Handle late join to active game
-    if (existingRoomData && existingRoomData.state !== 'waiting') {
-        playerData.hasGuessed = false;
-        playerData.guessedCurrentWord = false;
-    }
-    
-    playersRef.child(gameState.playerId).set(playerData).then(() => {
-        // FIXED: Proper disconnect handling
-        playersRef.child(gameState.playerId).onDisconnect().update({
-            isOnline: false,
-            leftAt: Date.now()
-        });
-        
+        hasGuessed: false
+    }).then(() => {
+        playersRef.child(gameState.playerId).onDisconnect().remove();
         setupListeners();
         showGame(gameState.roomCode);
     }).catch(err => {
@@ -981,9 +740,6 @@ function addPlayer(existingRoomData = null) {
 }
 
 function setupListeners() {
-    // FIXED: Players listener with debounced game start check
-    let playerChangeTimeout = null;
-    
     playersRef.on('value', (snap) => {
         const previousPlayers = { ...gameState.players };
         gameState.players = snap.val() || {};
@@ -993,7 +749,6 @@ function setupListeners() {
         const prevIds = Object.keys(previousPlayers);
         const currentIds = Object.keys(gameState.players);
         
-        // Handle joins
         if (prevIds.length > 0 && currentIds.length > prevIds.length) {
             const joinedId = currentIds.find(id => !prevIds.includes(id));
             if (joinedId && joinedId !== gameState.playerId) {
@@ -1001,17 +756,22 @@ function setupListeners() {
             }
         }
         
-        // Handle leaves
         if (prevIds.length > 0 && currentIds.length < prevIds.length) {
             const leftId = prevIds.find(id => !currentIds.includes(id));
             if (leftId && previousPlayers[leftId]) {
                 const leftName = previousPlayers[leftId].name;
-                sendChat('system', sanitizeText(`${leftName} left the game`));
+                gameState.leftPlayerName = leftName;
+                
+                sendChat('system', `${leftName} left the game`);
                 playSound('leave');
                 
-                // FIXED: Handle drawer leaving
                 gameRef.once('value', (gameSnap) => {
                     const game = gameSnap.val();
+                    if (game && game.playerList) {
+                        const newList = game.playerList.filter(id => id !== leftId);
+                        gameRef.update({ playerList: newList });
+                    }
+                    
                     if (game && game.drawer === leftId) {
                         handleDrawerLeft();
                     }
@@ -1019,23 +779,16 @@ function setupListeners() {
             }
         }
         
-        // FIXED: Debounced game start check (only host starts game)
-        if (gameState.isHost) {
-            clearTimeout(playerChangeTimeout);
-            playerChangeTimeout = setTimeout(() => {
-                tryStartGame();
-            }, 500);
+        gameState.lastPlayerCount = currentIds.length;
+        
+        if (!gameState.gameStarted) {
+            checkStartGame();
         }
     });
     
-    // Chat listener
     chatRef.limitToLast(100).on('child_added', (snap) => {
         const msg = snap.val();
-        if (!msg) return;
-        
-        // FIXED: Time comparison for late joiners
-        const msgTime = msg.time || 0;
-        if (msgTime >= gameState.joinTime - 5000 && shouldShowMessage(msg)) {
+        if (msg.time >= gameState.joinTime && shouldShowMessage(msg)) {
             displayMessage(msg);
             
             if (msg.type === 'correct' && msg.player !== gameState.playerId) {
@@ -1044,238 +797,159 @@ function setupListeners() {
         }
     });
     
-    // FIXED: Game state listener with transaction awareness
     gameRef.on('value', (snap) => {
         const game = snap.val();
         if (game) {
             handleGameChange(game);
+            if (game.state !== 'waiting') {
+                gameState.gameStarted = true;
+            }
         }
     });
     
     listenDrawing();
-    
-    // FIXED: Listen for host changes
-    hostRef.on('value', (snap) => {
-        const host = snap.val();
-        if (host && host.id === gameState.playerId) {
-            gameState.isHost = true;
-        } else {
-            gameState.isHost = false;
-        }
-    });
 }
 
-// FIXED: Proper drawer left handling with host election
 function handleDrawerLeft() {
     gameRef.once('value', (snap) => {
         const game = snap.val();
         if (!game) return;
         
         const playerList = game.playerList || Object.keys(gameState.players);
+        let nextIndex = (game.currentDrawerIndex + 1) % playerList.length;
         
-        // Remove offline players from list
-        const onlineList = playerList.filter(id => gameState.players[id] && gameState.players[id].isOnline !== false);
-        
-        if (onlineList.length === 0) return; // No players left
-        
-        let nextIndex = (game.currentDrawerIndex + 1) % onlineList.length;
-        
-        // Find next valid drawer
-        let attempts = 0;
-        while (attempts < onlineList.length) {
-            if (gameState.players[onlineList[nextIndex]] && 
-                gameState.players[onlineList[nextIndex]].isOnline !== false) {
-                break;
-            }
-            nextIndex = (nextIndex + 1) % onlineList.length;
-            attempts++;
+        while (nextIndex < playerList.length && !gameState.players[playerList[nextIndex]]) {
+            nextIndex = (nextIndex + 1) % playerList.length;
         }
         
-        const nextDrawer = onlineList[nextIndex];
+        const nextDrawer = playerList[nextIndex];
         
-        // FIXED: Update playerList to remove offline players
         gameRef.update({
             state: 'choosing',
             drawer: nextDrawer,
             currentDrawerIndex: nextIndex,
-            playerList: onlineList,
             word: null,
-            allGuessed: false,
-            timer: 80
+            allGuessed: false
         });
     });
 }
 
-// FIXED: Atomic game start with host-only initiation
-function tryStartGame() {
-    if (!gameState.isHost) return; // Only host starts game
+function checkStartGame() {
+    const playerIds = Object.keys(gameState.players);
     
-    const playerIds = Object.keys(gameState.players).filter(id => {
-        return gameState.players[id] && gameState.players[id].isOnline !== false;
-    });
-    
-    const playerCount = playerIds.length;
-    
-    if (playerCount < 2) {
-        updateWaitingMessage(playerCount);
-        return;
+    if (playerIds.length >= 2 && !gameState.gameStarted) {
+        gameState.playerList = playerIds;
+        
+        const firstPlayer = playerIds[0];
+        
+        gameRef.update({
+            state: 'choosing',
+            playerList: playerIds,
+            currentDrawerIndex: 0,
+            drawer: firstPlayer,
+            round: 1
+        }).then(() => {
+            gameState.gameStarted = true;
+        });
     }
-    
-    // FIXED: Use transaction to prevent race conditions
-    gameRef.transaction((currentGame) => {
-        if (!currentGame) return currentGame;
-        
-        // Only start if waiting and we have enough players
-        if (currentGame.state === 'waiting' && playerCount >= 2) {
-            return {
-                ...currentGame,
-                state: 'choosing',
-                playerList: playerIds,
-                currentDrawerIndex: 0,
-                drawer: playerIds[0],
-                round: 1,
-                timer: 80,
-                allGuessed: false,
-                word: null,
-                startTime: null
-            };
-        }
-        
-        return currentGame; // Abort transaction
-    }, (error, committed, snapshot) => {
-        if (error) {
-            console.error('Transaction failed:', error);
-        } else if (committed) {
-            console.log('Game started successfully!');
-        }
-    });
 }
 
-function updateWaitingMessage(playerCount) {
-    const wordDisplay = document.getElementById('wordDisplay');
-    
-    gameRef.once('value', (snap) => {
-        const game = snap.val();
-        if (!game || game.state === 'waiting') {
-            if (playerCount === 1) {
-                wordDisplay.textContent = 'Need 2+ players to start...';
-            } else if (playerCount >= 2) {
-                wordDisplay.textContent = 'Starting game...';
-            }
-        }
-    });
-}
-
-// FIXED: Proper message filtering
+// CRITICAL FIX: Proper message visibility logic
 function shouldShowMessage(msg) {
-    if (msg.type === 'system') return true;
-    if (msg.type === 'correct') return true;
     if (msg.player === gameState.playerId) return true;
+    if (msg.type === 'system') return true;
+    if (msg.type === 'correct') return true; // FIX: Always show correct guesses
     
     const me = gameState.players[gameState.playerId];
     const sender = gameState.players[msg.player];
     
-    // Drawer sees all guesser chats
-    if (gameState.isDrawer) {
-        if (msg.type === 'guesser_chat') return true;
-        if (msg.isClose) return true;
-        if (msg.type === 'guess' && !sender?.hasGuessed) return false;
-        return true;
-    }
-    
-    // Guesser who got it right sees other correct guessers
     if (me && me.hasGuessed) {
-        if (msg.type === 'guesser_chat') return true;
-        if (sender && sender.hasGuessed) return true;
-        if (gameState.game?.drawer === msg.player) return true;
+        if (msg.type === 'correct') return true;
+        if (sender && (sender.hasGuessed || gameState.game?.drawer === msg.player)) return true;
         return false;
     }
     
-    // Guesser who hasn't got it yet
     if (!me || !me.hasGuessed) {
         if (msg.type === 'guess') return true;
         if (msg.isClose) return true;
-        if (msg.type === 'guesser_chat') return false;
+        // FIX: Removed the return false that was hiding correct guesses
     }
     
     return true;
 }
 
-// FIXED: Robust game state handling
+// ==========================================
+// CRITICAL FIX: handleGameChange - Fixed state comparison
+// ==========================================
 function handleGameChange(game) {
-    console.log('Game state:', game.state, 'Drawer:', game.drawer, 'Me:', gameState.playerId);
+    const previousState = gameState.lastState;
+    const previousDrawer = gameState.lastDrawer;
+    const previousRound = gameState.lastRound;
     
-    const previousState = gameState.game?.state;
-    const previousDrawer = gameState.game?.drawer;
-    
-    // Update game state
     gameState.game = game;
     gameState.round = game.round || 1;
     gameState.maxRounds = game.maxRounds || 10;
     gameState.allGuessed = game.allGuessed || false;
-    gameState.playerList = game.playerList || [];
+    gameState.playerList = game.playerList || Object.keys(gameState.players);
     gameState.currentDrawerIndex = game.currentDrawerIndex || 0;
     
-    // FIXED: Check if I'm the drawer
-    const wasDrawer = gameState.isDrawer;
-    gameState.isDrawer = (game.drawer === gameState.playerId);
-    gameState.currentWord = game.word;
+    // Update tracking
+    gameState.lastState = game.state;
+    gameState.lastDrawer = game.drawer;
+    gameState.lastRound = game.round;
     
-    // Update UI
     document.getElementById('roundInfo').textContent = `Round ${gameState.round} of ${gameState.maxRounds}`;
     document.getElementById('timerDisplay').textContent = game.timer || 80;
     
-    updateWordDisplay(game.word);
+    const wasDrawer = gameState.isDrawer;
+    const wasActive = gameState.isGameActive;
+    gameState.isDrawer = game.drawer === gameState.playerId;
+    gameState.currentWord = game.word;
+    
+    // Update word display
+    if (gameState.isDrawer && game.word) {
+        document.getElementById('wordDisplay').textContent = game.word;
+    } else if (game.word) {
+        const display = game.word.split('').map(c => c === ' ' ? ' ' : '_').join(' ');
+        document.getElementById('wordDisplay').textContent = display;
+    } else {
+        document.getElementById('wordDisplay').textContent = 'Waiting...';
+    }
     
     const waitingOverlay = document.getElementById('waitingOverlay');
     const roundOverlay = document.getElementById('roundOverlay');
     const wordModal = document.getElementById('wordModal');
     
-    // Reset font styles
-    const wordDisplay = document.getElementById('wordDisplay');
-    wordDisplay.style.fontSize = '';
-    wordDisplay.style.letterSpacing = '';
+    // CRITICAL FIX: Less aggressive state comparison - allow player updates
+    const stateChanged = game.state !== previousState || 
+                        game.drawer !== previousDrawer || 
+                        game.round !== previousRound ||
+                        wasDrawer !== gameState.isDrawer;
     
-    // FIXED: Clear word timer when state changes
-    if (game.state !== 'choosing' && wordSelectTimer) {
-        clearInterval(wordSelectTimer);
-        wordSelectTimer = null;
-    }
-    
-    // FIXED: Clear drawing timer when not drawing
-    if (game.state !== 'drawing' && timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null;
+    // Always update player list, but skip expensive UI updates if nothing changed
+    if (!stateChanged && game.state !== 'drawing') {
+        return;
     }
     
     switch(game.state) {
         case 'waiting':
             waitingOverlay.classList.remove('show');
             roundOverlay.classList.remove('show');
-            wordModal.classList.remove('show');
             gameState.isGameActive = false;
-            updateWaitingMessage(Object.keys(gameState.players).length);
             break;
             
         case 'choosing':
             if (gameState.isDrawer) {
-                console.log('I am the drawer! Showing word select...');
                 waitingOverlay.classList.remove('show');
-                roundOverlay.classList.remove('show');
-                
-                // FIXED: Only show if not already showing
                 if (!wordModal.classList.contains('show')) {
-                    clearCanvas();
-                    showWordSelect();
+                    setTimeout(() => showWordSelect(), 100);
                 }
             } else {
-                console.log('I am not the drawer. Waiting...');
                 waitingOverlay.classList.add('show');
                 wordModal.classList.remove('show');
-                roundOverlay.classList.remove('show');
             }
+            roundOverlay.classList.remove('show');
             gameState.isGameActive = false;
-            gameState.hasGuessedCurrentWord = false;
             break;
             
         case 'drawing':
@@ -1284,25 +958,15 @@ function handleGameChange(game) {
             wordModal.classList.remove('show');
             gameState.isGameActive = true;
             
-            // FIXED: Reset guessed state when entering drawing
-            if (previousState === 'choosing') {
-                gameState.hasGuessedCurrentWord = false;
-                
-                // FIXED: Only drawer resets player states
-                if (gameState.isDrawer) {
-                    Object.keys(gameState.players).forEach(pid => {
-                        if (pid !== game.drawer) {
-                            playersRef.child(pid).update({ 
-                                hasGuessed: false,
-                                guessedCurrentWord: false
-                            });
-                        }
-                    });
-                }
+            if ((previousState === 'choosing' || game.timer === 80) && gameState.isDrawer) {
+                Object.keys(gameState.players).forEach(pid => {
+                    if (pid !== game.drawer) {
+                        playersRef.child(pid).update({ hasGuessed: false });
+                    }
+                });
             }
             
-            // FIXED: Only host/drawer starts timer
-            if (!timerInterval && gameState.isHost && gameState.isDrawer) {
+            if (!timerInterval && gameState.isDrawer) {
                 startTimer();
             }
             break;
@@ -1311,25 +975,16 @@ function handleGameChange(game) {
             waitingOverlay.classList.remove('show');
             showRoundEnd(game.word);
             gameState.isGameActive = false;
-            
-            // FIXED: Auto-hide round end overlay
-            setTimeout(() => {
-                if (gameState.game?.state === 'round_end') {
-                    roundOverlay.classList.remove('show');
-                }
-            }, 5000);
             break;
             
         case 'game_over':
             waitingOverlay.classList.remove('show');
             roundOverlay.classList.remove('show');
-            wordModal.classList.remove('show');
             showGameOver();
             gameState.isGameActive = false;
             break;
     }
     
-    // Handle drawer UI changes
     if (gameState.isDrawer !== wasDrawer) {
         if (gameState.isDrawer) {
             becomeDrawer();
@@ -1337,78 +992,27 @@ function handleGameChange(game) {
             stopDrawer();
         }
     }
-    
-    // FIXED: Handle word reveal for correct guessers
-    if (game.word && !gameState.isDrawer) {
-        const me = gameState.players[gameState.playerId];
-        if (me && me.hasGuessed) {
-            updateWordDisplay(game.word);
-        }
-    }
-}
-
-function updateWordDisplay(word) {
-    const wordDisplay = document.getElementById('wordDisplay');
-    
-    if (!word) {
-        wordDisplay.textContent = 'Waiting...';
-        return;
-    }
-    
-    if (gameState.isDrawer) {
-        wordDisplay.textContent = word;
-        return;
-    }
-    
-    const me = gameState.players[gameState.playerId];
-    
-    if (me && me.hasGuessed) {
-        wordDisplay.textContent = word.toUpperCase();
-        return;
-    }
-    
-    // Show underscores with spaces between
-    const display = word.split('').map(c => c === ' ' ? ' ' : '_').join(' ');
-    wordDisplay.textContent = display;
 }
 
 function becomeDrawer() {
-    console.log('Becoming drawer!');
     gameState.isDrawer = true;
     document.getElementById('drawerBadge').classList.add('show');
     document.getElementById('toolbarContainer').classList.add('show');
     
-    const chatInput = document.getElementById('chatInput');
-    chatInput.placeholder = 'Chat with players...';
-    chatInput.disabled = false;
-    
-    // FIXED: Show word select if in choosing state
     if (gameState.game?.state === 'choosing') {
         setTimeout(() => showWordSelect(), 200);
     }
 }
 
 function stopDrawer() {
-    console.log('Stopping drawer!');
     gameState.isDrawer = false;
     document.getElementById('drawerBadge').classList.remove('show');
     document.getElementById('toolbarContainer').classList.remove('show');
     document.getElementById('wordModal').classList.remove('show');
-    
-    const chatInput = document.getElementById('chatInput');
-    chatInput.placeholder = 'Type your guess here...';
-    chatInput.disabled = false;
-    
-    // FIXED: Stop any active drawing
-    isDrawing = false;
-    lastPoint = null;
-    currentStroke = null;
 }
 
-// FIXED: Word selection with proper cleanup
 function showWordSelect() {
-    const modal = document.getElementById('wordModal');
-    if (modal.classList.contains('show')) return;
+    if (document.getElementById('wordModal').classList.contains('show')) return;
     
     const options = WordBank.getWordOptions();
     const container = document.getElementById('wordOptions');
@@ -1417,34 +1021,23 @@ function showWordSelect() {
     options.forEach(opt => {
         const btn = document.createElement('button');
         btn.className = 'word-btn';
-        btn.innerHTML = `${sanitizeText(opt.word)}<div style="font-size:12px;margin-top:4px">${opt.difficulty} • ${opt.points} pts</div>`;
+        btn.innerHTML = `${opt.word}<div style="font-size:12px;margin-top:4px">${opt.difficulty} • ${opt.points} pts</div>`;
         btn.onclick = () => selectWord(opt.word);
         container.appendChild(btn);
     });
     
-    modal.classList.add('show');
-    
-    // FIXED: Clear any existing timer
-    if (wordSelectTimer) {
-        clearInterval(wordSelectTimer);
-        wordSelectTimer = null;
-    }
+    document.getElementById('wordModal').classList.add('show');
     
     let time = 15;
     const timerEl = document.getElementById('wordTimer');
     timerEl.textContent = time;
     
-    wordSelectTimer = setInterval(() => {
-        // FIXED: Pause timer when tab hidden
-        if (!isTabActive) return;
-        
+    const interval = setInterval(() => {
         time--;
         timerEl.textContent = time;
-        
         if (time <= 0) {
-            clearInterval(wordSelectTimer);
-            wordSelectTimer = null;
-            if (modal.classList.contains('show')) {
+            clearInterval(interval);
+            if (document.getElementById('wordModal').classList.contains('show')) {
                 selectWord(options[0].word);
             }
         }
@@ -1452,37 +1045,23 @@ function showWordSelect() {
 }
 
 function selectWord(word) {
-    // FIXED: Clear timer immediately
-    if (wordSelectTimer) {
-        clearInterval(wordSelectTimer);
-        wordSelectTimer = null;
-    }
-    
     document.getElementById('wordModal').classList.remove('show');
     clearCanvas();
-    canvasBackup = null;
     
-    console.log('Selecting word:', word);
-    
-    // FIXED: Use transaction for word selection
     gameRef.update({
         state: 'drawing',
         word: word,
         timer: 80,
         startTime: Date.now(),
-        allGuessed: false,
-        roundStartTime: Date.now()
+        allGuessed: false
     });
 }
 
-// FIXED: Synchronized timer with host control
+// CRITICAL FIX: Only drawer updates timer
 function startTimer() {
     if (timerInterval) clearInterval(timerInterval);
     
     timerInterval = setInterval(() => {
-        // FIXED: Only run if tab active and still drawer
-        if (!isTabActive || !gameState.isDrawer) return;
-        
         gameRef.once('value', (snap) => {
             const game = snap.val();
             if (!game || game.state !== 'drawing') {
@@ -1491,10 +1070,8 @@ function startTimer() {
                 return;
             }
             
-            // FIXED: Verify still the drawer
+            // CRITICAL FIX: Only update if I'm the drawer
             if (game.drawer !== gameState.playerId) {
-                clearInterval(timerInterval);
-                timerInterval = null;
                 return;
             }
             
@@ -1512,44 +1089,26 @@ function startTimer() {
     }, 1000);
 }
 
-// FIXED: Robust round ending with host election
 function endRound() {
     gameRef.once('value', (snap) => {
         const game = snap.val();
         if (!game) return;
         
-        const playerList = game.playerList || [];
-        const currentIndex = game.currentDrawerIndex || 0;
+        const playerList = game.playerList || Object.keys(gameState.players);
+        let nextIndex = (game.currentDrawerIndex + 1) % playerList.length;
+        let nextRound = game.round;
         
-        // Filter online players only
-        const onlineList = playerList.filter(id => {
-            return gameState.players[id] && gameState.players[id].isOnline !== false;
-        });
-        
-        if (onlineList.length === 0) return;
-        
-        let nextIndex = (currentIndex + 1) % onlineList.length;
-        let nextRound = game.round || 1;
-        
-        // Check if completed full rotation
         if (nextIndex === 0) {
-            nextRound = (game.round || 1) + 1;
+            nextRound = game.round + 1;
         }
         
-        // Game over check
         if (nextRound > 10) {
             gameRef.update({ state: 'game_over' });
             return;
         }
         
-        // Find valid next drawer
-        let attempts = 0;
-        while (attempts < onlineList.length) {
-            if (gameState.players[onlineList[nextIndex]] && 
-                gameState.players[onlineList[nextIndex]].isOnline !== false) {
-                break;
-            }
-            nextIndex = (nextIndex + 1) % onlineList.length;
+        while (nextIndex < playerList.length && !gameState.players[playerList[nextIndex]]) {
+            nextIndex = (nextIndex + 1) % playerList.length;
             if (nextIndex === 0) {
                 nextRound++;
                 if (nextRound > 10) {
@@ -1557,18 +1116,12 @@ function endRound() {
                     return;
                 }
             }
-            attempts++;
         }
         
-        const nextDrawer = onlineList[nextIndex];
+        const nextDrawer = playerList[nextIndex];
         
-        // FIXED: Update state atomically
-        gameRef.update({
-            state: 'round_end',
-            roundEndTime: Date.now()
-        });
+        gameRef.update({ state: 'round_end' });
         
-        // Transition to next round after delay
         setTimeout(() => {
             gameRef.update({
                 state: 'choosing',
@@ -1577,178 +1130,96 @@ function endRound() {
                 currentDrawerIndex: nextIndex,
                 word: null,
                 timer: 80,
-                allGuessed: false,
-                startTime: null,
-                roundStartTime: null,
-                playerList: onlineList // Update to remove offline players
+                allGuessed: false
             });
         }, 3000);
     });
 }
 
 // ==========================================
-// CHAT - FIXED
+// CHAT
 // ==========================================
 
 function sendMessage() {
     const input = document.getElementById('chatInput');
-    const text = input.value.trim().substring(0, 50);
+    const text = input.value.trim();
     if (!text) return;
     
-    // FIXED: Sanitize input
-    const sanitized = sanitizeText(text);
-    
     if (gameState.isDrawer) {
-        sendChat('drawer_chat', sanitized);
+        sendChat('drawer_chat', text);
         input.value = '';
         return;
     }
     
     const me = gameState.players[gameState.playerId];
-    
     if (me && me.hasGuessed) {
-        sendChat('guesser_chat', sanitized);
+        sendChat('guesser_chat', text);
         input.value = '';
         return;
     }
     
-    // Check for correct guess
-    if (gameState.isGameActive && gameState.currentWord && 
-        sanitized.toLowerCase() === gameState.currentWord.toLowerCase()) {
+    if (gameState.isGameActive && text.toLowerCase() === gameState.currentWord?.toLowerCase()) {
         handleCorrectGuess();
         input.value = '';
         return;
     }
     
-    // Check for close guess
-    const similarity = calcSimilarity(sanitized.toLowerCase(), gameState.currentWord?.toLowerCase() || '');
+    const similarity = calcSimilarity(text.toLowerCase(), gameState.currentWord?.toLowerCase() || '');
     const isClose = similarity > 0.6 && similarity < 1;
     
-    sendChat('guess', sanitized, isClose);
+    sendChat('guess', text, isClose);
     input.value = '';
-}
-
-// FIXED: Text sanitization
-function sanitizeText(text) {
-    if (!text) return '';
-    return text
-        .replace(/[<>]/g, '') // Remove HTML tags
-        .replace(/&/g, '&amp;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#x27;')
-        .trim();
 }
 
 function calcSimilarity(a, b) {
     if (!a || !b) return 0;
     if (a === b) return 1;
-    
-    // FIXED: Better similarity using Levenshtein distance
-    const maxLen = Math.max(a.length, b.length);
-    if (maxLen === 0) return 1;
-    
-    const distance = levenshteinDistance(a, b);
-    return 1 - distance / maxLen;
+    let matches = 0;
+    const min = Math.min(a.length, b.length);
+    for (let i = 0; i < min; i++) if (a[i] === b[i]) matches++;
+    return matches / Math.max(a.length, b.length);
 }
 
-function levenshteinDistance(a, b) {
-    const matrix = [];
-    
-    for (let i = 0; i <= b.length; i++) {
-        matrix[i] = [i];
-    }
-    
-    for (let j = 0; j <= a.length; j++) {
-        matrix[0][j] = j;
-    }
-    
-    for (let i = 1; i <= b.length; i++) {
-        for (let j = 1; j <= a.length; j++) {
-            if (b.charAt(i - 1) === a.charAt(j - 1)) {
-                matrix[i][j] = matrix[i - 1][j - 1];
-            } else {
-                matrix[i][j] = Math.min(
-                    matrix[i - 1][j - 1] + 1,
-                    matrix[i][j - 1] + 1,
-                    matrix[i - 1][j] + 1
-                );
-            }
-        }
-    }
-    
-    return matrix[b.length][a.length];
-}
-
-// FIXED: Correct guess with synced timer
 function handleCorrectGuess() {
     const me = gameState.players[gameState.playerId];
     if (me && me.hasGuessed) return;
     
-    // FIXED: Get current timer from Firebase for accurate scoring
-    gameRef.once('value', (snap) => {
-        const game = snap.val();
-        const currentTimer = game?.timer || 0;
-        const points = Math.max(10, Math.floor(currentTimer / 8) * 10);
-        
-        playersRef.child(gameState.playerId).update({
-            score: (me?.score || 0) + points,
-            hasGuessed: true,
-            guessedCurrentWord: true
-        });
-        
-        sendChat('correct', `guessed correctly! (+${points})`);
-        playSound('correct');
-        
-        updateWordDisplay(gameState.currentWord);
-        checkAllGuessed();
+    const points = Math.max(10, Math.floor(gameState.timer / 8) * 10);
+    
+    playersRef.child(gameState.playerId).update({
+        score: (me?.score || 0) + points,
+        hasGuessed: true
     });
+    
+    sendChat('correct', `guessed correctly! (+${points})`);
+    playSound('correct');
+    checkAllGuessed();
 }
 
-// FIXED: All guessed check with online players only
+// CRITICAL FIX: Check minimum players
 function checkAllGuessed() {
-    const allPlayers = Object.keys(gameState.players).filter(id => {
-        return gameState.players[id] && gameState.players[id].isOnline !== false;
-    });
+    const allPlayers = Object.keys(gameState.players);
+    if (allPlayers.length < 2) return; // Need at least 2 players
     
-    if (allPlayers.length < 2) return;
-    
-    const drawerId = gameState.game?.drawer;
-    const guessers = allPlayers.filter(id => id !== drawerId);
-    
-    if (guessers.length === 0) return;
+    const guessers = allPlayers.filter(id => id !== gameState.game?.drawer);
+    if (guessers.length === 0) return; // Need at least 1 guesser
     
     const allCorrect = guessers.every(id => gameState.players[id]?.hasGuessed);
     
     if (allCorrect && !gameState.allGuessed) {
-        // Award drawer bonus
-        const drawer = gameState.players[drawerId];
-        if (drawer && gameState.isHost) { // Only host awards bonus
-            playersRef.child(drawerId).update({
+        const drawer = gameState.players[gameState.game?.drawer];
+        if (drawer) {
+            playersRef.child(gameState.game.drawer).update({
                 score: (drawer.score || 0) + 25
             });
         }
         
         gameRef.update({ allGuessed: true });
-        
-        // End round after short delay
-        if (gameState.isHost) {
-            setTimeout(() => endRound(), 2000);
-        }
+        setTimeout(() => endRound(), 2000);
     }
 }
 
-// FIXED: Rate-limited chat
-let lastChatTime = 0;
-const CHAT_COOLDOWN = 500; // ms
-
 function sendChat(type, text, isClose = false) {
-    const now = Date.now();
-    if (now - lastChatTime < CHAT_COOLDOWN && type !== 'system') {
-        showToast('Please wait before sending another message', 'warning');
-        return;
-    }
-    lastChatTime = now;
-    
     chatRef.push({
         type: type,
         text: text,
@@ -1759,62 +1230,31 @@ function sendChat(type, text, isClose = false) {
     });
 }
 
-// FIXED: Message display with anti-spam
-let lastMessageTime = 0;
-let messageCount = 0;
-
 function displayMessage(msg) {
-    // Anti-spam: limit messages per second
-    const now = Date.now();
-    if (now - lastMessageTime < 1000) {
-        messageCount++;
-        if (messageCount > 10) {
-            console.warn('Message spam detected, skipping');
-            return;
-        }
-    } else {
-        messageCount = 0;
-        lastMessageTime = now;
-    }
-    
     const container = document.getElementById('chatMessages');
     const div = document.createElement('div');
     div.className = 'chat-message';
     
-    const safeText = sanitizeText(msg.text);
-    const safeName = sanitizeText(msg.name);
-    
     if (msg.type === 'system') {
         div.classList.add('system');
-        div.textContent = safeText;
+        div.textContent = msg.text;
     } else if (msg.type === 'correct') {
         div.classList.add('correct');
-        div.innerHTML = `<span class="username">${safeName}</span> ${safeText}`;
-    } else if (msg.type === 'drawer_chat') {
-        div.classList.add('drawer-chat');
-        div.innerHTML = `<span class="username" style="color:var(--accent)">✏️ ${safeName}</span> ${safeText}`;
-    } else if (msg.type === 'guesser_chat') {
-        div.classList.add('guesser-chat');
-        div.innerHTML = `<span class="username" style="color:var(--success)">✓ ${safeName}</span> ${safeText}`;
+        div.innerHTML = `<span class="username">${msg.name}</span> ${msg.text}`;
     } else if (msg.isClose) {
         div.classList.add('close');
-        div.innerHTML = `<span class="username">${safeName}</span> ${safeText} (close!)`;
+        div.innerHTML = `<span class="username">${msg.name}</span> ${msg.text} (close!)`;
     } else {
         div.classList.add('guess');
-        div.innerHTML = `<span class="username">${safeName}</span> ${safeText}`;
+        div.innerHTML = `<span class="username">${msg.name}</span> ${msg.text}`;
     }
     
     container.appendChild(div);
-    
-    // FIXED: Smart scroll - only auto-scroll if near bottom
-    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
-    if (isNearBottom) {
-        container.scrollTop = container.scrollHeight;
-    }
+    container.scrollTop = container.scrollHeight;
 }
 
 // ==========================================
-// UI - FIXED
+// UI
 // ==========================================
 
 function updatePlayerList() {
@@ -1822,10 +1262,7 @@ function updatePlayerList() {
     const count = document.getElementById('playerCount');
     
     container.innerHTML = '';
-    const players = Object.entries(gameState.players).filter(([id, p]) => {
-        return p && p.isOnline !== false; // Hide offline players
-    });
-    
+    const players = Object.entries(gameState.players);
     count.textContent = `${players.length}/8`;
     
     players.sort((a, b) => (b[1].score || 0) - (a[1].score || 0));
@@ -1837,13 +1274,10 @@ function updatePlayerList() {
         if (id === gameState.game?.drawer) div.classList.add('current-drawer');
         if (p.hasGuessed) div.classList.add('guessed');
         
-        // FIXED: Safe avatar initial
-        const initial = p.name && p.name.length > 0 ? p.name[0].toUpperCase() : '?';
-        
         div.innerHTML = `
-            <div class="player-avatar">${initial}</div>
+            <div class="player-avatar">${p.name[0].toUpperCase()}</div>
             <div class="player-info">
-                <div class="player-name">${sanitizeText(p.name)} ${id === gameState.playerId ? '(You)' : ''}</div>
+                <div class="player-name">${p.name} ${id === gameState.playerId ? '(You)' : ''}</div>
             </div>
             <div class="player-score">${p.score || 0}</div>
         `;
@@ -1861,14 +1295,13 @@ function showRoundEnd(word) {
     scoresDiv.innerHTML = '';
     
     const sorted = Object.entries(gameState.players)
-        .filter(([id, p]) => p && p.isOnline !== false)
         .sort((a, b) => (b[1].score || 0) - (a[1].score || 0))
         .slice(0, 3);
     
     sorted.forEach(([id, p], i) => {
         const row = document.createElement('div');
         row.style.cssText = 'display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee;';
-        row.innerHTML = `<span>#${i + 1} ${sanitizeText(p.name)}</span><span>${p.score || 0} pts</span>`;
+        row.innerHTML = `<span>#${i + 1} ${p.name}</span><span>${p.score || 0} pts</span>`;
         scoresDiv.appendChild(row);
     });
 }
@@ -1882,7 +1315,6 @@ function showGameOver() {
     const autoRestartText = document.getElementById('autoRestartText');
     
     const sorted = Object.entries(gameState.players)
-        .filter(([id, p]) => p && p.isOnline !== false)
         .sort((a, b) => (b[1].score || 0) - (a[1].score || 0));
     
     const winner = sorted[0];
@@ -1890,12 +1322,10 @@ function showGameOver() {
     if (winner) {
         winnerDisplay.innerHTML = `
             <div class="winner-crown">👑</div>
-            <div class="winner-name">${sanitizeText(winner[1].name)}</div>
+            <div class="winner-name">${winner[1].name}</div>
             <div class="winner-score">${winner[1].score || 0} points</div>
         `;
         trophy.textContent = '🏆';
-    } else {
-        winnerDisplay.innerHTML = '<div class="winner-name">No winner</div>';
     }
     
     const container = document.getElementById('finalScores');
@@ -1906,7 +1336,7 @@ function showGameOver() {
         div.className = 'final-score-item' + (i === 0 ? ' winner' : '');
         div.innerHTML = `
             <span class="final-rank">#${i + 1}</span>
-            <span class="final-name">${sanitizeText(p.name)}</span>
+            <span class="final-name">${p.name}</span>
             <span class="final-points">${p.score || 0}</span>
         `;
         container.appendChild(div);
@@ -1914,24 +1344,19 @@ function showGameOver() {
     
     modal.classList.add('show');
     
-    // FIXED: Only host auto-restarts
-    if (gameState.isHost) {
-        let secondsLeft = 10;
+    let secondsLeft = 10;
+    autoRestartText.textContent = `New game starts in ${secondsLeft}...`;
+    
+    autoRestartTimer = setInterval(() => {
+        secondsLeft--;
         autoRestartText.textContent = `New game starts in ${secondsLeft}...`;
         
-        autoRestartTimer = setInterval(() => {
-            secondsLeft--;
-            autoRestartText.textContent = `New game starts in ${secondsLeft}...`;
-            
-            if (secondsLeft <= 0) {
-                clearInterval(autoRestartTimer);
-                autoRestartTimer = null;
-                playAgain();
-            }
-        }, 1000);
-    } else {
-        autoRestartText.textContent = 'Waiting for host to start new game...';
-    }
+        if (secondsLeft <= 0) {
+            clearInterval(autoRestartTimer);
+            autoRestartTimer = null;
+            playAgain();
+        }
+    }, 1000);
 }
 
 function showGame(code) {
@@ -1946,104 +1371,48 @@ function showGame(code) {
         resizeCanvas();
     }, 100);
     
-    // FIXED: Delay join message to ensure listener is ready
-    setTimeout(() => {
-        sendChat('system', `${sanitizeText(gameState.playerName)} joined!`);
-    }, 500);
+    sendChat('system', `${gameState.playerName} joined!`);
 }
 
-// FIXED: Proper game reset with host check
 function playAgain() {
-    if (!gameState.isHost) return; // Only host can restart
-    
     if (autoRestartTimer) {
         clearInterval(autoRestartTimer);
         autoRestartTimer = null;
     }
     
-    const playerIds = Object.keys(gameState.players).filter(id => {
-        return gameState.players[id] && gameState.players[id].isOnline !== false;
-    });
-    
-    if (playerIds.length === 0) return;
-    
+    gameState.gameStarted = false;
+    const playerIds = Object.keys(gameState.players);
     gameRef.update({
         state: 'choosing',
         round: 1,
         playerList: playerIds,
         currentDrawerIndex: 0,
-        drawer: playerIds[0],
+        drawer: playerIds[0] || gameState.playerId,
         word: null,
-        allGuessed: false,
-        timer: 80,
-        startTime: null
+        allGuessed: false
     });
     
-    // Reset scores
     Object.keys(gameState.players).forEach(pid => {
-        playersRef.child(pid).update({ 
-            score: 0, 
-            hasGuessed: false,
-            guessedCurrentWord: false
-        });
+        playersRef.child(pid).update({ score: 0, hasGuessed: false });
     });
     
     document.getElementById('gameOverModal').classList.remove('show');
 }
 
-// FIXED: Proper cleanup on exit
+// CRITICAL FIX: Clean up Firebase listeners
 function exitGame() {
-    // Send leave message first
-    sendChat('system', `${sanitizeText(gameState.playerName)} left.`);
-    
-    // Small delay to ensure message sends
-    setTimeout(() => {
-        cleanupAndReload();
-    }, 300);
-}
-
-function cleanupAndReload() {
-    // Clear intervals
-    if (timerInterval) clearInterval(timerInterval);
-    if (autoRestartTimer) clearInterval(autoRestartTimer);
-    if (wordSelectTimer) clearInterval(wordSelectTimer);
-    if (drawQueueTimeout) clearTimeout(drawQueueTimeout);
-    
-    // Remove Firebase listeners
+    // Clean up all listeners
     if (playersRef) playersRef.off();
     if (chatRef) chatRef.off();
     if (gameRef) gameRef.off();
     if (drawingRef) drawingRef.off();
-    if (hostRef) hostRef.off();
     if (roomRef) roomRef.off();
     
-    // Remove player
-    if (playersRef && gameState.playerId) {
+    if (roomRef && gameState.playerId) {
         playersRef.child(gameState.playerId).remove();
+        sendChat('system', `${gameState.playerName} left.`);
     }
-    
-    // Clear drawing data to save space
-    if (drawingRef) {
-        drawingRef.remove();
-    }
-    
     location.reload();
-}
-
-// FIXED: Separate handlers for beforeunload and unload
-function handleBeforeUnload(e) {
-    if (gameState.isGameActive) {
-        e.preventDefault();
-        e.returnValue = 'Leave game?';
-        return 'Leave game?';
-    }
-}
-
-function handleUnload() {
-    // Best effort cleanup
-    if (playersRef && gameState.playerId) {
-        playersRef.child(gameState.playerId).update({ isOnline: false, leftAt: Date.now() });
-    }
 }
 
 function showToast(msg, type) {
@@ -2056,4 +1425,8 @@ function showToast(msg, type) {
     setTimeout(() => toast.remove(), 3000);
 }
 
-console.log('🎮 Game engine v15.0 - ALL BUGS FIXED!');
+window.onbeforeunload = () => {
+    if (gameState.isGameActive) return 'Leave game?';
+};
+
+console.log('🎮 Game engine v10.0 - ALL BUGS FIXED!');
