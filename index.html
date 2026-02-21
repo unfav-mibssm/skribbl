@@ -13,7 +13,7 @@
         <div class="login-container">
             <div class="logo-section">
                 <div class="logo-icon">🎨</div>
-                <h1>Skribbl.io9</h1>
+                <h1>Skribbl.io10</h1>
                 <p class="tagline">Draw, guess, and have fun!</p>
             </div>
             
@@ -100,7 +100,20 @@
                     </div>
                 </div>
 
-                <!-- Toolbar -->
+                <!-- Popups -->
+                <div class="popup-overlay" id="popupOverlay"></div>
+                <div class="popup color-popup" id="colorPopup">
+                    <div class="popup-header">Colors <button class="close-popup" onclick="closePopups()">×</button></div>
+                    <div class="color-grid" id="colorGrid"></div>
+                </div>
+                <div class="popup size-popup" id="sizePopup">
+                    <div class="popup-header">Size <button class="close-popup" onclick="closePopups()">×</button></div>
+                    <div class="size-options" id="sizeOptions"></div>
+                </div>
+            </div>
+
+            <!-- TOOLBAR - MOVED TO MIDDLE -->
+            <div class="toolbar-container" id="toolbarContainer">
                 <div class="toolbar" id="toolbar">
                     <div class="tool-group">
                         <button class="tool-btn" id="colorBtn" title="Color">
@@ -113,17 +126,6 @@
                         <button class="tool-btn" id="undoBtn" title="Undo">↩️</button>
                         <button class="tool-btn danger" id="clearBtn" title="Clear">🗑️</button>
                     </div>
-                </div>
-                
-                <!-- Popups -->
-                <div class="popup-overlay" id="popupOverlay"></div>
-                <div class="popup color-popup" id="colorPopup">
-                    <div class="popup-header">Colors <button class="close-popup" onclick="closePopups()">×</button></div>
-                    <div class="color-grid" id="colorGrid"></div>
-                </div>
-                <div class="popup size-popup" id="sizePopup">
-                    <div class="popup-header">Size <button class="close-popup" onclick="closePopups()">×</button></div>
-                    <div class="size-options" id="sizeOptions"></div>
                 </div>
             </div>
 
@@ -164,26 +166,18 @@
         </div>
     </div>
 
-    <!-- Game Over Modal -->
+    <!-- Game Over Modal - WITH WINNER DISPLAY -->
     <div class="game-over-modal" id="gameOverModal">
         <div class="game-over-content">
-            <div class="trophy">🏆</div>
+            <div class="trophy" id="winnerTrophy">🏆</div>
             <h1>Game Over!</h1>
+            <div class="winner-display" id="winnerDisplay"></div>
             <div class="final-scores" id="finalScores"></div>
+            <div class="auto-restart-text" id="autoRestartText">New game starts in 10...</div>
             <div class="game-over-actions">
-                <button onclick="playAgain()" class="play-again-btn primary">🔄 Play Again</button>
+                <button onclick="playAgain()" class="play-again-btn primary">🔄 Play Now</button>
                 <button onclick="location.reload()" class="play-again-btn secondary">🏠 Menu</button>
             </div>
-        </div>
-    </div>
-
-    <!-- Player Left Modal -->
-    <div class="modal-overlay" id="playerLeftModal">
-        <div class="player-left-content">
-            <h2 id="leftPlayerTitle">Player left</h2>
-            <p id="leftPlayerMessage">Someone left the game</p>
-            <div class="word-was">The word was: <span id="leftWordReveal">---</span></div>
-            <button onclick="continueGame()" class="continue-btn">Continue</button>
         </div>
     </div>
 
@@ -196,7 +190,13 @@
         <div class="loading-text">Connecting...</div>
     </div>
 
-    <!-- Audio Elements - YOUR CUSTOM SOUNDS -->
+    <!-- Pull to Refresh Indicator -->
+    <div class="pull-to-refresh" id="pullToRefresh">
+        <div class="pull-spinner">↓</div>
+        <div>Pull to refresh</div>
+    </div>
+
+    <!-- Audio Elements -->
     <audio id="soundJoin" preload="auto">
         <source src="https://files.catbox.moe/8jc19e.wav" type="audio/wav">
     </audio>
