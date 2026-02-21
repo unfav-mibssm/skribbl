@@ -20,7 +20,7 @@ let gameState = {
     leftPlayerName: null,
     gameStarted: false,
     joinTime: null,
-    hasShownGame: false // NEW: Track if we've fully entered the game
+    hasShownGame: false
 };
 
 let canvas, ctx;
@@ -32,6 +32,7 @@ let drawingHistory = [];
 let lastDrawTime = 0;
 let remoteStroke = null;
 let timerInterval = null;
+let autoRestartTimer = null;
 
 let roomRef, playersRef, chatRef, drawingRef, gameRef;
 
@@ -61,6 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initSizePicker();
     initToolbar();
     initSounds();
+    initPullToRefresh(); // NEW
     
     document.getElementById('chatInput').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
@@ -68,6 +70,44 @@ document.addEventListener('DOMContentLoaded', () => {
     
     document.getElementById('popupOverlay').addEventListener('click', closePopups);
 });
+
+// NEW: Pull to refresh functionality
+function initPullToRefresh() {
+    let startY = 0;
+    let isPulling = false;
+    
+    document.addEventListener('touchstart', (e) => {
+        if (window.scrollY === 0) {
+            startY = e.touches[0].clientY;
+            isPulling = true;
+        }
+    }, { passive: true });
+    
+    document.addEventListener('touchmove', (e) => {
+        if (!isPulling) return;
+        
+        const currentY = e.touches[0].clientY;
+        const diff = currentY - startY;
+        
+        if (diff > 80 && window.scrollY === 0) {
+            document.getElementById('pullToRefresh').classList.add('show');
+        }
+    }, { passive: true });
+    
+    document.addEventListener('touchend', (e) => {
+        if (!isPulling) return;
+        
+        const currentY = e.changedTouches[0].clientY;
+        const diff = currentY - startY;
+        
+        if (diff > 150 && window.scrollY === 0) {
+            location.reload();
+        }
+        
+        document.getElementById('pullToRefresh').classList.remove('show');
+        isPulling = false;
+    });
+}
 
 function initSounds() {
     sounds.join = document.getElementById('soundJoin');
@@ -107,15 +147,16 @@ function initCanvas() {
 }
 
 function resizeCanvas() {
-    const section = document.querySelector('.canvas-section');
-    const sectionHeight = section.clientHeight;
-    const sectionWidth = section.clientWidth;
+    const wrapper = document.querySelector('.canvas-wrapper');
+    const wrapperWidth = wrapper.clientWidth;
+    const wrapperHeight = wrapper.clientHeight;
     
-    let width = sectionWidth;
+    // Calculate size to fit within wrapper while maintaining aspect ratio
+    let width = wrapperWidth;
     let height = width * 0.75;
     
-    if (height > sectionHeight) {
-        height = sectionHeight;
+    if (height > wrapperHeight) {
+        height = wrapperHeight;
         width = height / 0.75;
     }
     
@@ -124,11 +165,6 @@ function resizeCanvas() {
     
     canvas.style.width = width + 'px';
     canvas.style.height = height + 'px';
-    
-    canvas.style.position = 'absolute';
-    canvas.style.left = '50%';
-    canvas.style.top = '50%';
-    canvas.style.transform = 'translate(-50%, -50%)';
 }
 
 function clearCanvas() {
@@ -217,7 +253,7 @@ function closePopups() {
 }
 
 // ==========================================
-// DRAWING - SMOOTH CURVES
+// DRAWING
 // ==========================================
 
 function getPos(e) {
@@ -511,7 +547,7 @@ function handleRemoteDraw(data) {
 }
 
 // ==========================================
-// GAME LOGIC - 10 ROUNDS
+// GAME LOGIC
 // ==========================================
 
 function joinGame() {
@@ -614,12 +650,15 @@ function setupListeners() {
             }
         }
         
-        // Check for players leaving
+        // MODIFIED: Check for players leaving - show as chat message
         if (prevIds.length > 0 && currentIds.length < prevIds.length) {
             const leftId = prevIds.find(id => !currentIds.includes(id));
             if (leftId && previousPlayers[leftId]) {
-                gameState.leftPlayerName = previousPlayers[leftId].name;
-                showToast(`${gameState.leftPlayerName} left the game`, 'info');
+                const leftName = previousPlayers[leftId].name;
+                gameState.leftPlayerName = leftName;
+                
+                // MODIFIED: Show as chat message instead of popup
+                sendChat('system', `${leftName} left the game`);
                 playSound('leave');
                 
                 gameRef.once('value', (gameSnap) => {
@@ -629,8 +668,9 @@ function setupListeners() {
                         gameRef.update({ playerList: newList });
                     }
                     
+                    // MODIFIED: If drawer left, continue game without popup
                     if (game && game.drawer === leftId) {
-                        showDrawerLeftModal(game.word);
+                        handleDrawerLeft();
                     }
                 });
             }
@@ -643,7 +683,6 @@ function setupListeners() {
         }
     });
     
-    // MODIFIED: Only show messages sent after join time
     chatRef.limitToLast(100).on('child_added', (snap) => {
         const msg = snap.val();
         if (msg.time >= gameState.joinTime && shouldShowMessage(msg)) {
@@ -666,6 +705,33 @@ function setupListeners() {
     });
     
     listenDrawing();
+}
+
+// NEW: Handle drawer leaving without popup
+function handleDrawerLeft() {
+    gameRef.once('value', (snap) => {
+        const game = snap.val();
+        if (!game) return;
+        
+        const playerList = game.playerList || Object.keys(gameState.players);
+        let nextIndex = (game.currentDrawerIndex + 1) % playerList.length;
+        
+        // Skip players who left
+        while (nextIndex < playerList.length && !gameState.players[playerList[nextIndex]]) {
+            nextIndex = (nextIndex + 1) % playerList.length;
+        }
+        
+        const nextDrawer = playerList[nextIndex];
+        
+        // Continue to next drawer immediately
+        gameRef.update({
+            state: 'choosing',
+            drawer: nextDrawer,
+            currentDrawerIndex: nextIndex,
+            word: null,
+            allGuessed: false
+        });
+    });
 }
 
 function checkStartGame() {
@@ -710,41 +776,8 @@ function shouldShowMessage(msg) {
     return true;
 }
 
-function showDrawerLeftModal(word) {
-    document.getElementById('leftPlayerTitle').textContent = 'The drawer left!';
-    document.getElementById('leftPlayerMessage').textContent = `${gameState.leftPlayerName || 'Someone'} left the game`;
-    document.getElementById('leftWordReveal').textContent = word || '---';
-    document.getElementById('playerLeftModal').classList.add('show');
-}
-
-function continueGame() {
-    document.getElementById('playerLeftModal').classList.remove('show');
-    
-    gameRef.once('value', (snap) => {
-        const game = snap.val();
-        if (!game) return;
-        
-        const playerList = game.playerList || Object.keys(gameState.players);
-        let nextIndex = (game.currentDrawerIndex + 1) % playerList.length;
-        
-        while (nextIndex < playerList.length && !gameState.players[playerList[nextIndex]]) {
-            nextIndex = (nextIndex + 1) % playerList.length;
-        }
-        
-        const nextDrawer = playerList[nextIndex];
-        
-        gameRef.update({
-            state: 'choosing',
-            drawer: nextDrawer,
-            currentDrawerIndex: nextIndex,
-            word: null,
-            allGuessed: false
-        });
-    });
-}
-
 // ==========================================
-// FIXED: handleGameChange - Only show waiting overlay for non-drawers
+// CRITICAL FIX: handleGameChange - Waiting overlay logic
 // ==========================================
 function handleGameChange(game) {
     const previousState = gameState.game?.state;
@@ -783,58 +816,91 @@ function handleGameChange(game) {
     }
     
     // ==========================================
-    // FIXED: State handling - ONLY show waiting overlay if NOT drawer
+    // CRITICAL FIX: Proper state handling
     // ==========================================
-    if (game.state === 'choosing') {
-        // Only show waiting overlay if you're NOT the drawer
-        if (!gameState.isDrawer) {
-            document.getElementById('waitingOverlay').classList.add('show');
-        } else {
-            document.getElementById('waitingOverlay').classList.remove('show');
-        }
-        gameState.isGameActive = false;
-        
-    } else if (game.state === 'drawing') {
-        document.getElementById('waitingOverlay').classList.remove('show');
-        document.getElementById('roundOverlay').classList.remove('show');
-        gameState.isGameActive = true;
-        
-        // Reset hasGuessed for non-drawers when new round starts
-        if (game.timer === 80 && (!wasActive || previousState === 'choosing')) {
-            Object.keys(gameState.players).forEach(pid => {
-                if (pid !== game.drawer) {
-                    playersRef.child(pid).update({ hasGuessed: false });
+    const waitingOverlay = document.getElementById('waitingOverlay');
+    const roundOverlay = document.getElementById('roundOverlay');
+    const wordModal = document.getElementById('wordModal');
+    
+    switch(game.state) {
+        case 'waiting':
+            // Game hasn't started yet
+            waitingOverlay.classList.remove('show');
+            roundOverlay.classList.remove('show');
+            gameState.isGameActive = false;
+            break;
+            
+        case 'choosing':
+            // Drawer is choosing word - ONLY non-drawers see waiting
+            if (gameState.isDrawer) {
+                // Drawer should NOT see waiting overlay
+                waitingOverlay.classList.remove('show');
+                // Show word selection if not already showing
+                if (!wordModal.classList.contains('show') && !wasDrawer) {
+                    showWordSelect();
                 }
-            });
-        }
-        
-        if (!timerInterval) {
-            startTimer();
-        }
-        
-    } else if (game.state === 'round_end') {
-        // Don't show waiting overlay during round end
-        document.getElementById('waitingOverlay').classList.remove('show');
-        showRoundEnd(game.word);
-        
-    } else if (game.state === 'game_over') {
-        document.getElementById('waitingOverlay').classList.remove('show');
-        showGameOver();
+            } else {
+                // Non-drawers see waiting
+                waitingOverlay.classList.add('show');
+            }
+            roundOverlay.classList.remove('show');
+            gameState.isGameActive = false;
+            break;
+            
+        case 'drawing':
+            // Game is active - HIDE waiting for everyone
+            waitingOverlay.classList.remove('show');
+            roundOverlay.classList.remove('show');
+            wordModal.classList.remove('show');
+            gameState.isGameActive = true;
+            
+            // Reset hasGuessed for non-drawers when new round starts
+            if (game.timer === 80 && (!wasActive || previousState === 'choosing')) {
+                Object.keys(gameState.players).forEach(pid => {
+                    if (pid !== game.drawer) {
+                        playersRef.child(pid).update({ hasGuessed: false });
+                    }
+                });
+            }
+            
+            if (!timerInterval) {
+                startTimer();
+            }
+            break;
+            
+        case 'round_end':
+            // Round ended - show round overlay, NOT waiting
+            waitingOverlay.classList.remove('show');
+            showRoundEnd(game.word);
+            gameState.isGameActive = false;
+            break;
+            
+        case 'game_over':
+            // Game over
+            waitingOverlay.classList.remove('show');
+            roundOverlay.classList.remove('show');
+            showGameOver();
+            gameState.isGameActive = false;
+            break;
     }
 }
 
 function becomeDrawer() {
     gameState.isDrawer = true;
     document.getElementById('drawerBadge').classList.add('show');
-    document.getElementById('toolbar').classList.add('show');
+    document.getElementById('toolbarContainer').classList.add('show'); // MODIFIED
     clearCanvas();
-    showWordSelect();
+    
+    // Only show word select if we're actually in choosing state
+    if (gameState.game?.state === 'choosing') {
+        showWordSelect();
+    }
 }
 
 function stopDrawer() {
     gameState.isDrawer = false;
     document.getElementById('drawerBadge').classList.remove('show');
-    document.getElementById('toolbar').classList.remove('show');
+    document.getElementById('toolbarContainer').classList.remove('show'); // MODIFIED
     document.getElementById('wordModal').classList.remove('show');
 }
 
@@ -1119,14 +1185,39 @@ function showRoundEnd(word) {
     });
 }
 
+// ==========================================
+// MODIFIED: Game Over with Winner Display & Auto-Restart
+// ==========================================
 function showGameOver() {
-    document.getElementById('gameOverModal').classList.add('show');
+    // Clear any existing auto-restart timer
+    if (autoRestartTimer) {
+        clearInterval(autoRestartTimer);
+    }
     
-    const container = document.getElementById('finalScores');
-    container.innerHTML = '';
+    const modal = document.getElementById('gameOverModal');
+    const winnerDisplay = document.getElementById('winnerDisplay');
+    const trophy = document.getElementById('winnerTrophy');
+    const autoRestartText = document.getElementById('autoRestartText');
     
+    // Sort players by score
     const sorted = Object.entries(gameState.players)
         .sort((a, b) => (b[1].score || 0) - (a[1].score || 0));
+    
+    const winner = sorted[0];
+    
+    // Display winner with crown
+    if (winner) {
+        winnerDisplay.innerHTML = `
+            <div class="winner-crown">👑</div>
+            <div class="winner-name">${winner[1].name}</div>
+            <div class="winner-score">${winner[1].score || 0} points</div>
+        `;
+        trophy.textContent = '🏆';
+    }
+    
+    // Show final scores (all players)
+    const container = document.getElementById('finalScores');
+    container.innerHTML = '';
     
     sorted.forEach(([id, p], i) => {
         const div = document.createElement('div');
@@ -1138,6 +1229,23 @@ function showGameOver() {
         `;
         container.appendChild(div);
     });
+    
+    modal.classList.add('show');
+    
+    // Auto-restart countdown
+    let secondsLeft = 10;
+    autoRestartText.textContent = `New game starts in ${secondsLeft}...`;
+    
+    autoRestartTimer = setInterval(() => {
+        secondsLeft--;
+        autoRestartText.textContent = `New game starts in ${secondsLeft}...`;
+        
+        if (secondsLeft <= 0) {
+            clearInterval(autoRestartTimer);
+            autoRestartTimer = null;
+            playAgain();
+        }
+    }, 1000);
 }
 
 function showGame(code) {
@@ -1156,6 +1264,12 @@ function showGame(code) {
 }
 
 function playAgain() {
+    // Clear auto-restart timer if manually clicked
+    if (autoRestartTimer) {
+        clearInterval(autoRestartTimer);
+        autoRestartTimer = null;
+    }
+    
     gameState.gameStarted = false;
     const playerIds = Object.keys(gameState.players);
     gameRef.update({
@@ -1197,4 +1311,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v8.1 - BUG FIXES loaded!');
+console.log('🎮 Game engine v9.0 - ALL BUGS FIXED!');
