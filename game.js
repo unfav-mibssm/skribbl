@@ -1,5 +1,5 @@
 // ==========================================
-// GAME ENGINE - 10 ROUNDS FIXED
+// GAME ENGINE - CRITICAL BUG FIXES
 // ==========================================
 
 let gameState = {
@@ -20,7 +20,8 @@ let gameState = {
     leftPlayerName: null,
     gameStarted: false,
     joinTime: null,
-    hasShownGame: false
+    hasShownGame: false,
+    lastState: null // Track last state to prevent flicker
 };
 
 let canvas, ctx;
@@ -33,6 +34,10 @@ let lastDrawTime = 0;
 let remoteStroke = null;
 let timerInterval = null;
 let autoRestartTimer = null;
+
+// FIX: Store canvas content to restore after keyboard
+let canvasBackup = null;
+let isKeyboardOpen = false;
 
 let roomRef, playersRef, chatRef, drawingRef, gameRef;
 
@@ -62,7 +67,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initSizePicker();
     initToolbar();
     initSounds();
-    initPullToRefresh(); // NEW
+    initPullToRefresh();
+    initKeyboardHandling(); // NEW: Handle keyboard opening
     
     document.getElementById('chatInput').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
@@ -71,7 +77,85 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('popupOverlay').addEventListener('click', closePopups);
 });
 
-// NEW: Pull to refresh functionality
+// NEW: Handle keyboard opening/closing to preserve canvas
+function initKeyboardHandling() {
+    const chatInput = document.getElementById('chatInput');
+    
+    // When keyboard opens (input focused)
+    chatInput.addEventListener('focus', () => {
+        isKeyboardOpen = true;
+        // Save canvas content
+        if (canvas && ctx) {
+            try {
+                canvasBackup = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            } catch(e) {
+                console.log('Could not backup canvas');
+            }
+        }
+    });
+    
+    // When keyboard closes (input blurred)
+    chatInput.addEventListener('blur', () => {
+        isKeyboardOpen = false;
+        // Restore canvas after a short delay
+        setTimeout(() => {
+            if (canvasBackup && ctx) {
+                try {
+                    ctx.putImageData(canvasBackup, 0, 0);
+                } catch(e) {
+                    console.log('Could not restore canvas');
+                }
+            }
+            // Also redraw from history as backup
+            redraw();
+        }, 100);
+    });
+    
+    // Handle visual viewport changes (keyboard appearance)
+    if (window.visualViewport) {
+        let lastHeight = window.visualViewport.height;
+        
+        window.visualViewport.addEventListener('resize', () => {
+            const newHeight = window.visualViewport.height;
+            const heightDiff = lastHeight - newHeight;
+            
+            // If height decreased significantly, keyboard likely opened
+            if (heightDiff > 150) {
+                isKeyboardOpen = true;
+                // Don't resize canvas, just adjust wrapper
+                document.body.style.height = `${newHeight}px`;
+            } else if (heightDiff < -150) {
+                // Keyboard closed
+                isKeyboardOpen = false;
+                document.body.style.height = '100dvh';
+                
+                // Restore canvas
+                setTimeout(() => {
+                    redraw();
+                }, 100);
+            }
+            
+            lastHeight = newHeight;
+        });
+    }
+}
+
+function initSounds() {
+    sounds.join = document.getElementById('soundJoin');
+    sounds.correct = document.getElementById('soundCorrect');
+    sounds.roundEnd = document.getElementById('soundRoundEnd');
+    sounds.leave = document.getElementById('soundLeave');
+    sounds.enter = document.getElementById('soundEnter');
+}
+
+function playSound(soundName) {
+    const sound = sounds[soundName];
+    if (sound) {
+        sound.currentTime = 0;
+        sound.play().catch(e => console.log('Sound play failed:', e));
+    }
+}
+
 function initPullToRefresh() {
     let startY = 0;
     let isPulling = false;
@@ -109,29 +193,27 @@ function initPullToRefresh() {
     });
 }
 
-function initSounds() {
-    sounds.join = document.getElementById('soundJoin');
-    sounds.correct = document.getElementById('soundCorrect');
-    sounds.roundEnd = document.getElementById('soundRoundEnd');
-    sounds.leave = document.getElementById('soundLeave');
-    sounds.enter = document.getElementById('soundEnter');
-}
-
-function playSound(soundName) {
-    const sound = sounds[soundName];
-    if (sound) {
-        sound.currentTime = 0;
-        sound.play().catch(e => console.log('Sound play failed:', e));
-    }
-}
+// ==========================================
+// CANVAS - FIXED TO NOT CLEAR ON KEYBOARD
+// ==========================================
 
 function initCanvas() {
     canvas = document.getElementById('gameCanvas');
     ctx = canvas.getContext('2d', { willReadFrequently: true });
     
+    // Initial sizing
     resizeCanvas();
+    
+    // Only resize on actual window resize, not keyboard
+    let resizeTimeout;
     window.addEventListener('resize', () => {
-        resizeCanvas();
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            // Only resize if keyboard is not open
+            if (!isKeyboardOpen) {
+                resizeCanvas();
+            }
+        }, 100);
     });
     
     canvas.addEventListener('mousedown', startDraw);
@@ -148,10 +230,12 @@ function initCanvas() {
 
 function resizeCanvas() {
     const wrapper = document.querySelector('.canvas-wrapper');
+    if (!wrapper) return;
+    
     const wrapperWidth = wrapper.clientWidth;
     const wrapperHeight = wrapper.clientHeight;
     
-    // Calculate size to fit within wrapper while maintaining aspect ratio
+    // Calculate size to fit within wrapper
     let width = wrapperWidth;
     let height = width * 0.75;
     
@@ -160,18 +244,43 @@ function resizeCanvas() {
         width = height / 0.75;
     }
     
-    canvas.width = width;
-    canvas.height = height;
-    
-    canvas.style.width = width + 'px';
-    canvas.style.height = height + 'px';
+    // Only resize if dimensions actually changed
+    if (Math.abs(canvas.width - width) > 5 || Math.abs(canvas.height - height) > 5) {
+        // Save current content
+        let savedData = null;
+        if (ctx && canvas.width > 0 && canvas.height > 0) {
+            try {
+                savedData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            } catch(e) {}
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        canvas.style.width = width + 'px';
+        canvas.style.height = height + 'px';
+        
+        // Restore content if possible
+        if (savedData) {
+            try {
+                ctx.putImageData(savedData, 0, 0);
+            } catch(e) {
+                redraw();
+            }
+        }
+    }
 }
 
 function clearCanvas() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     drawingHistory = [];
+    canvasBackup = null;
 }
+
+// ==========================================
+// TOOLBAR & COLOR PICKER
+// ==========================================
 
 function initColorPicker() {
     const grid = document.getElementById('colorGrid');
@@ -253,7 +362,7 @@ function closePopups() {
 }
 
 // ==========================================
-// DRAWING
+// DRAWING FUNCTIONS
 // ==========================================
 
 function getPos(e) {
@@ -642,7 +751,7 @@ function setupListeners() {
         const prevIds = Object.keys(previousPlayers);
         const currentIds = Object.keys(gameState.players);
         
-        // NEW: Check for new players joining (not us)
+        // Check for new players joining (not us)
         if (prevIds.length > 0 && currentIds.length > prevIds.length) {
             const joinedId = currentIds.find(id => !prevIds.includes(id));
             if (joinedId && joinedId !== gameState.playerId) {
@@ -650,14 +759,14 @@ function setupListeners() {
             }
         }
         
-        // MODIFIED: Check for players leaving - show as chat message
+        // Check for players leaving
         if (prevIds.length > 0 && currentIds.length < prevIds.length) {
             const leftId = prevIds.find(id => !currentIds.includes(id));
             if (leftId && previousPlayers[leftId]) {
                 const leftName = previousPlayers[leftId].name;
                 gameState.leftPlayerName = leftName;
                 
-                // MODIFIED: Show as chat message instead of popup
+                // Show as chat message
                 sendChat('system', `${leftName} left the game`);
                 playSound('leave');
                 
@@ -668,7 +777,7 @@ function setupListeners() {
                         gameRef.update({ playerList: newList });
                     }
                     
-                    // MODIFIED: If drawer left, continue game without popup
+                    // If drawer left, continue game
                     if (game && game.drawer === leftId) {
                         handleDrawerLeft();
                     }
@@ -707,7 +816,6 @@ function setupListeners() {
     listenDrawing();
 }
 
-// NEW: Handle drawer leaving without popup
 function handleDrawerLeft() {
     gameRef.once('value', (snap) => {
         const game = snap.val();
@@ -716,14 +824,12 @@ function handleDrawerLeft() {
         const playerList = game.playerList || Object.keys(gameState.players);
         let nextIndex = (game.currentDrawerIndex + 1) % playerList.length;
         
-        // Skip players who left
         while (nextIndex < playerList.length && !gameState.players[playerList[nextIndex]]) {
             nextIndex = (nextIndex + 1) % playerList.length;
         }
         
         const nextDrawer = playerList[nextIndex];
         
-        // Continue to next drawer immediately
         gameRef.update({
             state: 'choosing',
             drawer: nextDrawer,
@@ -780,7 +886,7 @@ function shouldShowMessage(msg) {
 // CRITICAL FIX: handleGameChange - Waiting overlay logic
 // ==========================================
 function handleGameChange(game) {
-    const previousState = gameState.game?.state;
+    const previousState = gameState.lastState;
     const previousDrawer = gameState.game?.drawer;
     
     gameState.game = game;
@@ -789,6 +895,7 @@ function handleGameChange(game) {
     gameState.allGuessed = game.allGuessed || false;
     gameState.playerList = game.playerList || Object.keys(gameState.players);
     gameState.currentDrawerIndex = game.currentDrawerIndex || 0;
+    gameState.lastState = game.state; // Track last state
     
     document.getElementById('roundInfo').textContent = `Round ${gameState.round} of ${gameState.maxRounds}`;
     document.getElementById('timerDisplay').textContent = game.timer || 80;
@@ -797,13 +904,6 @@ function handleGameChange(game) {
     const wasActive = gameState.isGameActive;
     gameState.isDrawer = game.drawer === gameState.playerId;
     gameState.currentWord = game.word;
-    
-    // Handle drawer changes
-    if (gameState.isDrawer && !wasDrawer) {
-        becomeDrawer();
-    } else if (!gameState.isDrawer && wasDrawer) {
-        stopDrawer();
-    }
     
     // Update word display
     if (gameState.isDrawer && game.word) {
@@ -815,47 +915,54 @@ function handleGameChange(game) {
         document.getElementById('wordDisplay').textContent = 'Waiting...';
     }
     
-    // ==========================================
-    // CRITICAL FIX: Proper state handling
-    // ==========================================
     const waitingOverlay = document.getElementById('waitingOverlay');
     const roundOverlay = document.getElementById('roundOverlay');
     const wordModal = document.getElementById('wordModal');
     
+    // ==========================================
+    // CRITICAL FIX: Proper state handling with debounce
+    // ==========================================
+    
+    // Don't process if state hasn't actually changed (prevents flicker)
+    if (game.state === previousState && game.drawer === previousDrawer && wasDrawer === gameState.isDrawer) {
+        return;
+    }
+    
     switch(game.state) {
         case 'waiting':
-            // Game hasn't started yet
             waitingOverlay.classList.remove('show');
             roundOverlay.classList.remove('show');
             gameState.isGameActive = false;
             break;
             
         case 'choosing':
-            // Drawer is choosing word - ONLY non-drawers see waiting
+            // CRITICAL FIX: Only non-drawers see waiting overlay
             if (gameState.isDrawer) {
-                // Drawer should NOT see waiting overlay
+                // Drawer: hide waiting, show word selection
                 waitingOverlay.classList.remove('show');
-                // Show word selection if not already showing
-                if (!wordModal.classList.contains('show') && !wasDrawer) {
-                    showWordSelect();
+                
+                // Only show word modal if not already showing
+                if (!wordModal.classList.contains('show')) {
+                    setTimeout(() => showWordSelect(), 100);
                 }
             } else {
-                // Non-drawers see waiting
+                // Non-drawer: show waiting, hide any modals
                 waitingOverlay.classList.add('show');
+                wordModal.classList.remove('show');
             }
             roundOverlay.classList.remove('show');
             gameState.isGameActive = false;
             break;
             
         case 'drawing':
-            // Game is active - HIDE waiting for everyone
+            // CRITICAL FIX: Hide waiting for EVERYONE when drawing starts
             waitingOverlay.classList.remove('show');
             roundOverlay.classList.remove('show');
             wordModal.classList.remove('show');
             gameState.isGameActive = true;
             
             // Reset hasGuessed for non-drawers when new round starts
-            if (game.timer === 80 && (!wasActive || previousState === 'choosing')) {
+            if (previousState === 'choosing' || game.timer === 80) {
                 Object.keys(gameState.players).forEach(pid => {
                     if (pid !== game.drawer) {
                         playersRef.child(pid).update({ hasGuessed: false });
@@ -869,42 +976,51 @@ function handleGameChange(game) {
             break;
             
         case 'round_end':
-            // Round ended - show round overlay, NOT waiting
             waitingOverlay.classList.remove('show');
             showRoundEnd(game.word);
             gameState.isGameActive = false;
             break;
             
         case 'game_over':
-            // Game over
             waitingOverlay.classList.remove('show');
             roundOverlay.classList.remove('show');
             showGameOver();
             gameState.isGameActive = false;
             break;
     }
+    
+    // Handle drawer UI changes
+    if (gameState.isDrawer !== wasDrawer) {
+        if (gameState.isDrawer) {
+            becomeDrawer();
+        } else {
+            stopDrawer();
+        }
+    }
 }
 
 function becomeDrawer() {
     gameState.isDrawer = true;
     document.getElementById('drawerBadge').classList.add('show');
-    document.getElementById('toolbarContainer').classList.add('show'); // MODIFIED
-    clearCanvas();
+    document.getElementById('toolbarContainer').classList.add('show');
     
-    // Only show word select if we're actually in choosing state
+    // Only show word select if in choosing state
     if (gameState.game?.state === 'choosing') {
-        showWordSelect();
+        setTimeout(() => showWordSelect(), 200);
     }
 }
 
 function stopDrawer() {
     gameState.isDrawer = false;
     document.getElementById('drawerBadge').classList.remove('show');
-    document.getElementById('toolbarContainer').classList.remove('show'); // MODIFIED
+    document.getElementById('toolbarContainer').classList.remove('show');
     document.getElementById('wordModal').classList.remove('show');
 }
 
 function showWordSelect() {
+    // Prevent showing if already showing
+    if (document.getElementById('wordModal').classList.contains('show')) return;
+    
     const options = WordBank.getWordOptions();
     const container = document.getElementById('wordOptions');
     container.innerHTML = '';
@@ -1185,27 +1301,19 @@ function showRoundEnd(word) {
     });
 }
 
-// ==========================================
-// MODIFIED: Game Over with Winner Display & Auto-Restart
-// ==========================================
 function showGameOver() {
-    // Clear any existing auto-restart timer
-    if (autoRestartTimer) {
-        clearInterval(autoRestartTimer);
-    }
+    if (autoRestartTimer) clearInterval(autoRestartTimer);
     
     const modal = document.getElementById('gameOverModal');
     const winnerDisplay = document.getElementById('winnerDisplay');
     const trophy = document.getElementById('winnerTrophy');
     const autoRestartText = document.getElementById('autoRestartText');
     
-    // Sort players by score
     const sorted = Object.entries(gameState.players)
         .sort((a, b) => (b[1].score || 0) - (a[1].score || 0));
     
     const winner = sorted[0];
     
-    // Display winner with crown
     if (winner) {
         winnerDisplay.innerHTML = `
             <div class="winner-crown">👑</div>
@@ -1215,7 +1323,6 @@ function showGameOver() {
         trophy.textContent = '🏆';
     }
     
-    // Show final scores (all players)
     const container = document.getElementById('finalScores');
     container.innerHTML = '';
     
@@ -1232,7 +1339,6 @@ function showGameOver() {
     
     modal.classList.add('show');
     
-    // Auto-restart countdown
     let secondsLeft = 10;
     autoRestartText.textContent = `New game starts in ${secondsLeft}...`;
     
@@ -1264,7 +1370,6 @@ function showGame(code) {
 }
 
 function playAgain() {
-    // Clear auto-restart timer if manually clicked
     if (autoRestartTimer) {
         clearInterval(autoRestartTimer);
         autoRestartTimer = null;
@@ -1311,4 +1416,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v9.0 - ALL BUGS FIXED!');
+console.log('🎮 Game engine v9.1 - CRITICAL BUGS FIXED!');
