@@ -1,5 +1,5 @@
 // ==========================================
-// GAME ENGINE - CRITICAL BUG FIXES
+// GAME ENGINE - CRITICAL BUG FIXES v9.2
 // ==========================================
 
 let gameState = {
@@ -21,7 +21,7 @@ let gameState = {
     gameStarted: false,
     joinTime: null,
     hasShownGame: false,
-    lastState: null // Track last state to prevent flicker
+    lastState: null
 };
 
 let canvas, ctx;
@@ -34,10 +34,6 @@ let lastDrawTime = 0;
 let remoteStroke = null;
 let timerInterval = null;
 let autoRestartTimer = null;
-
-// FIX: Store canvas content to restore after keyboard
-let canvasBackup = null;
-let isKeyboardOpen = false;
 
 let roomRef, playersRef, chatRef, drawingRef, gameRef;
 
@@ -68,77 +64,29 @@ document.addEventListener('DOMContentLoaded', () => {
     initToolbar();
     initSounds();
     initPullToRefresh();
-    initKeyboardHandling(); // NEW: Handle keyboard opening
     
-    document.getElementById('chatInput').addEventListener('keypress', (e) => {
+    // FIX: Better chat input handling
+    const chatInput = document.getElementById('chatInput');
+    chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
+    });
+    
+    // FIX: Ensure canvas keeps focus for drawing
+    chatInput.addEventListener('focus', () => {
+        // Don't block drawing - just mark that keyboard is open
+        window.isKeyboardOpen = true;
+    });
+    
+    chatInput.addEventListener('blur', () => {
+        window.isKeyboardOpen = false;
+        // Return focus to game area for drawing
+        setTimeout(() => {
+            document.getElementById('gameScreen').focus();
+        }, 100);
     });
     
     document.getElementById('popupOverlay').addEventListener('click', closePopups);
 });
-
-// NEW: Handle keyboard opening/closing to preserve canvas
-function initKeyboardHandling() {
-    const chatInput = document.getElementById('chatInput');
-    
-    // When keyboard opens (input focused)
-    chatInput.addEventListener('focus', () => {
-        isKeyboardOpen = true;
-        // Save canvas content
-        if (canvas && ctx) {
-            try {
-                canvasBackup = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            } catch(e) {
-                console.log('Could not backup canvas');
-            }
-        }
-    });
-    
-    // When keyboard closes (input blurred)
-    chatInput.addEventListener('blur', () => {
-        isKeyboardOpen = false;
-        // Restore canvas after a short delay
-        setTimeout(() => {
-            if (canvasBackup && ctx) {
-                try {
-                    ctx.putImageData(canvasBackup, 0, 0);
-                } catch(e) {
-                    console.log('Could not restore canvas');
-                }
-            }
-            // Also redraw from history as backup
-            redraw();
-        }, 100);
-    });
-    
-    // Handle visual viewport changes (keyboard appearance)
-    if (window.visualViewport) {
-        let lastHeight = window.visualViewport.height;
-        
-        window.visualViewport.addEventListener('resize', () => {
-            const newHeight = window.visualViewport.height;
-            const heightDiff = lastHeight - newHeight;
-            
-            // If height decreased significantly, keyboard likely opened
-            if (heightDiff > 150) {
-                isKeyboardOpen = true;
-                // Don't resize canvas, just adjust wrapper
-                document.body.style.height = `${newHeight}px`;
-            } else if (heightDiff < -150) {
-                // Keyboard closed
-                isKeyboardOpen = false;
-                document.body.style.height = '100dvh';
-                
-                // Restore canvas
-                setTimeout(() => {
-                    redraw();
-                }, 100);
-            }
-            
-            lastHeight = newHeight;
-        });
-    }
-}
 
 function initSounds() {
     sounds.join = document.getElementById('soundJoin');
@@ -194,38 +142,129 @@ function initPullToRefresh() {
 }
 
 // ==========================================
-// CANVAS - FIXED TO NOT CLEAR ON KEYBOARD
+// CANVAS - FIXED FOR KEYBOARD + DRAWING
 // ==========================================
 
 function initCanvas() {
     canvas = document.getElementById('gameCanvas');
     ctx = canvas.getContext('2d', { willReadFrequently: true });
     
-    // Initial sizing
     resizeCanvas();
     
-    // Only resize on actual window resize, not keyboard
-    let resizeTimeout;
+    // FIX: Only resize on actual orientation change, not keyboard
+    let lastWidth = window.innerWidth;
     window.addEventListener('resize', () => {
-        clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(() => {
-            // Only resize if keyboard is not open
-            if (!isKeyboardOpen) {
-                resizeCanvas();
-            }
-        }, 100);
+        // Only resize if width changed (orientation change), not height (keyboard)
+        if (Math.abs(window.innerWidth - lastWidth) > 50) {
+            lastWidth = window.innerWidth;
+            setTimeout(resizeCanvas, 100);
+        }
     });
     
-    canvas.addEventListener('mousedown', startDraw);
-    canvas.addEventListener('mousemove', draw);
-    canvas.addEventListener('mouseup', endDraw);
-    canvas.addEventListener('mouseleave', endDraw);
+    // ==========================================
+    // CRITICAL FIX: Touch events that work with keyboard
+    // ==========================================
     
-    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
-    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
-    canvas.addEventListener('touchend', endDraw, { passive: false });
+    // Use pointer events instead of mouse/touch for better compatibility
+    canvas.addEventListener('pointerdown', handlePointerDown, { passive: false });
+    canvas.addEventListener('pointermove', handlePointerMove, { passive: false });
+    canvas.addEventListener('pointerup', handlePointerUp, { passive: false });
+    canvas.addEventListener('pointerleave', handlePointerUp, { passive: false });
+    
+    // Prevent default touch behaviors that interfere
+    canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+    canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
     
     clearCanvas();
+}
+
+// NEW: Unified pointer handling
+function handlePointerDown(e) {
+    if (!gameState.isDrawer || !gameState.isGameActive) return;
+    
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    
+    const pos = getPointerPos(e);
+    
+    if (pos.x < 0 || pos.x > canvas.width || pos.y < 0 || pos.y > canvas.height) return;
+    
+    if (currentTool === 'bucket') {
+        floodFill(Math.floor(pos.x), Math.floor(pos.y), currentColor);
+        sendDrawData('fill', { x: Math.floor(pos.x), y: Math.floor(pos.y), color: currentColor });
+        return;
+    }
+    
+    isDrawing = true;
+    lastPoint = pos;
+    
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+    
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = currentSize;
+    ctx.strokeStyle = currentTool === 'eraser' ? '#ffffff' : currentColor;
+    
+    const stroke = {
+        color: ctx.strokeStyle,
+        size: currentSize,
+        points: [{ x: pos.x, y: pos.y }]
+    };
+    drawingHistory.push(stroke);
+    
+    sendDrawData('start', { x: pos.x, y: pos.y, color: stroke.color, size: stroke.size });
+}
+
+function handlePointerMove(e) {
+    if (!isDrawing || !gameState.isDrawer) return;
+    
+    e.preventDefault();
+    
+    const pos = getPointerPos(e);
+    
+    if (pos.x < 0 || pos.x > canvas.width || pos.y < 0 || pos.y > canvas.height) {
+        lastPoint = pos;
+        return;
+    }
+    
+    if (lastPoint) {
+        const midX = (lastPoint.x + pos.x) / 2;
+        const midY = (lastPoint.y + pos.y) / 2;
+        
+        ctx.quadraticCurveTo(lastPoint.x, lastPoint.y, midX, midY);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(midX, midY);
+        
+        if (drawingHistory.length > 0) {
+            drawingHistory[drawingHistory.length - 1].points.push({ x: pos.x, y: pos.y });
+        }
+        
+        sendDrawData('draw', { x: pos.x, y: pos.y, lx: lastPoint.x, ly: lastPoint.y });
+    }
+    
+    lastPoint = pos;
+}
+
+function handlePointerUp(e) {
+    if (!isDrawing) return;
+    
+    e.preventDefault();
+    isDrawing = false;
+    lastPoint = null;
+    ctx.beginPath();
+    sendDrawData('end');
+}
+
+// NEW: Get position from pointer event
+function getPointerPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    
+    return {
+        x: (e.clientX - rect.left) * (canvas.width / rect.width),
+        y: (e.clientY - rect.top) * (canvas.height / rect.height)
+    };
 }
 
 function resizeCanvas() {
@@ -235,7 +274,6 @@ function resizeCanvas() {
     const wrapperWidth = wrapper.clientWidth;
     const wrapperHeight = wrapper.clientHeight;
     
-    // Calculate size to fit within wrapper
     let width = wrapperWidth;
     let height = width * 0.75;
     
@@ -244,15 +282,11 @@ function resizeCanvas() {
         width = height / 0.75;
     }
     
-    // Only resize if dimensions actually changed
+    // Only resize if significantly different
     if (Math.abs(canvas.width - width) > 5 || Math.abs(canvas.height - height) > 5) {
-        // Save current content
-        let savedData = null;
-        if (ctx && canvas.width > 0 && canvas.height > 0) {
-            try {
-                savedData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            } catch(e) {}
-        }
+        // Save drawing
+        const savedData = drawingHistory.length > 0 ? 
+            ctx.getImageData(0, 0, canvas.width, canvas.height) : null;
         
         canvas.width = width;
         canvas.height = height;
@@ -260,7 +294,7 @@ function resizeCanvas() {
         canvas.style.width = width + 'px';
         canvas.style.height = height + 'px';
         
-        // Restore content if possible
+        // Restore or redraw
         if (savedData) {
             try {
                 ctx.putImageData(savedData, 0, 0);
@@ -275,12 +309,7 @@ function clearCanvas() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     drawingHistory = [];
-    canvasBackup = null;
 }
-
-// ==========================================
-// TOOLBAR & COLOR PICKER
-// ==========================================
 
 function initColorPicker() {
     const grid = document.getElementById('colorGrid');
@@ -362,126 +391,8 @@ function closePopups() {
 }
 
 // ==========================================
-// DRAWING FUNCTIONS
+// DRAWING UTILITIES
 // ==========================================
-
-function getPos(e) {
-    const rect = canvas.getBoundingClientRect();
-    let clientX, clientY;
-    
-    if (e.touches && e.touches.length > 0) {
-        clientX = e.touches[0].clientX;
-        clientY = e.touches[0].clientY;
-    } else {
-        clientX = e.clientX;
-        clientY = e.clientY;
-    }
-    
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    
-    return {
-        x: (clientX - rect.left) * scaleX,
-        y: (clientY - rect.top) * scaleY
-    };
-}
-
-let lastPoint = null;
-
-function startDraw(e) {
-    if (!gameState.isDrawer || !gameState.isGameActive) return;
-    e.preventDefault();
-    
-    const pos = getPos(e);
-    
-    if (pos.x < 0 || pos.x > canvas.width || pos.y < 0 || pos.y > canvas.height) return;
-    
-    if (currentTool === 'bucket') {
-        floodFill(Math.floor(pos.x), Math.floor(pos.y), currentColor);
-        sendDrawData('fill', { x: Math.floor(pos.x), y: Math.floor(pos.y), color: currentColor });
-        return;
-    }
-    
-    isDrawing = true;
-    lastPoint = pos;
-    
-    ctx.beginPath();
-    ctx.moveTo(pos.x, pos.y);
-    
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = currentSize;
-    ctx.strokeStyle = currentTool === 'eraser' ? '#ffffff' : currentColor;
-    
-    const stroke = {
-        color: ctx.strokeStyle,
-        size: currentSize,
-        points: [{ x: pos.x, y: pos.y }]
-    };
-    drawingHistory.push(stroke);
-    
-    sendDrawData('start', { x: pos.x, y: pos.y, color: stroke.color, size: stroke.size });
-}
-
-function draw(e) {
-    if (!isDrawing || !gameState.isDrawer) return;
-    e.preventDefault();
-    
-    const pos = getPos(e);
-    
-    if (pos.x < 0 || pos.x > canvas.width || pos.y < 0 || pos.y > canvas.height) {
-        lastPoint = pos;
-        return;
-    }
-    
-    if (lastPoint) {
-        const midX = (lastPoint.x + pos.x) / 2;
-        const midY = (lastPoint.y + pos.y) / 2;
-        
-        ctx.quadraticCurveTo(lastPoint.x, lastPoint.y, midX, midY);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(midX, midY);
-        
-        if (drawingHistory.length > 0) {
-            drawingHistory[drawingHistory.length - 1].points.push({ x: pos.x, y: pos.y });
-        }
-        
-        sendDrawData('draw', { x: pos.x, y: pos.y, lx: lastPoint.x, ly: lastPoint.y });
-    }
-    
-    lastPoint = pos;
-}
-
-function endDraw(e) {
-    if (!isDrawing) return;
-    isDrawing = false;
-    lastPoint = null;
-    ctx.beginPath();
-    sendDrawData('end');
-}
-
-function handleTouchStart(e) {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const mouseEvent = new MouseEvent('mousedown', {
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        bubbles: true
-    });
-    canvas.dispatchEvent(mouseEvent);
-}
-
-function handleTouchMove(e) {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const mouseEvent = new MouseEvent('mousemove', {
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        bubbles: true
-    });
-    canvas.dispatchEvent(mouseEvent);
-}
 
 function floodFill(startX, startY, fillColor) {
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -766,7 +677,6 @@ function setupListeners() {
                 const leftName = previousPlayers[leftId].name;
                 gameState.leftPlayerName = leftName;
                 
-                // Show as chat message
                 sendChat('system', `${leftName} left the game`);
                 playSound('leave');
                 
@@ -777,7 +687,6 @@ function setupListeners() {
                         gameRef.update({ playerList: newList });
                     }
                     
-                    // If drawer left, continue game
                     if (game && game.drawer === leftId) {
                         handleDrawerLeft();
                     }
@@ -883,7 +792,7 @@ function shouldShowMessage(msg) {
 }
 
 // ==========================================
-// CRITICAL FIX: handleGameChange - Waiting overlay logic
+// CRITICAL FIX: handleGameChange
 // ==========================================
 function handleGameChange(game) {
     const previousState = gameState.lastState;
@@ -895,13 +804,12 @@ function handleGameChange(game) {
     gameState.allGuessed = game.allGuessed || false;
     gameState.playerList = game.playerList || Object.keys(gameState.players);
     gameState.currentDrawerIndex = game.currentDrawerIndex || 0;
-    gameState.lastState = game.state; // Track last state
+    gameState.lastState = game.state;
     
     document.getElementById('roundInfo').textContent = `Round ${gameState.round} of ${gameState.maxRounds}`;
     document.getElementById('timerDisplay').textContent = game.timer || 80;
     
     const wasDrawer = gameState.isDrawer;
-    const wasActive = gameState.isGameActive;
     gameState.isDrawer = game.drawer === gameState.playerId;
     gameState.currentWord = game.word;
     
@@ -919,11 +827,7 @@ function handleGameChange(game) {
     const roundOverlay = document.getElementById('roundOverlay');
     const wordModal = document.getElementById('wordModal');
     
-    // ==========================================
-    // CRITICAL FIX: Proper state handling with debounce
-    // ==========================================
-    
-    // Don't process if state hasn't actually changed (prevents flicker)
+    // Skip if no meaningful change
     if (game.state === previousState && game.drawer === previousDrawer && wasDrawer === gameState.isDrawer) {
         return;
     }
@@ -936,17 +840,12 @@ function handleGameChange(game) {
             break;
             
         case 'choosing':
-            // CRITICAL FIX: Only non-drawers see waiting overlay
             if (gameState.isDrawer) {
-                // Drawer: hide waiting, show word selection
                 waitingOverlay.classList.remove('show');
-                
-                // Only show word modal if not already showing
                 if (!wordModal.classList.contains('show')) {
-                    setTimeout(() => showWordSelect(), 100);
+                    setTimeout(() => showWordSelect(), 200);
                 }
             } else {
-                // Non-drawer: show waiting, hide any modals
                 waitingOverlay.classList.add('show');
                 wordModal.classList.remove('show');
             }
@@ -955,13 +854,11 @@ function handleGameChange(game) {
             break;
             
         case 'drawing':
-            // CRITICAL FIX: Hide waiting for EVERYONE when drawing starts
             waitingOverlay.classList.remove('show');
             roundOverlay.classList.remove('show');
             wordModal.classList.remove('show');
             gameState.isGameActive = true;
             
-            // Reset hasGuessed for non-drawers when new round starts
             if (previousState === 'choosing' || game.timer === 80) {
                 Object.keys(gameState.players).forEach(pid => {
                     if (pid !== game.drawer) {
@@ -1004,9 +901,8 @@ function becomeDrawer() {
     document.getElementById('drawerBadge').classList.add('show');
     document.getElementById('toolbarContainer').classList.add('show');
     
-    // Only show word select if in choosing state
     if (gameState.game?.state === 'choosing') {
-        setTimeout(() => showWordSelect(), 200);
+        setTimeout(() => showWordSelect(), 300);
     }
 }
 
@@ -1018,7 +914,6 @@ function stopDrawer() {
 }
 
 function showWordSelect() {
-    // Prevent showing if already showing
     if (document.getElementById('wordModal').classList.contains('show')) return;
     
     const options = WordBank.getWordOptions();
@@ -1416,4 +1311,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v9.1 - CRITICAL BUGS FIXED!');
+console.log('🎮 Game engine v9.2 - DRAWING + KEYBOARD FIXED!');
