@@ -782,7 +782,6 @@ html, body {
     padding: 6px 8px;
 }
 
-/* CRITICAL FIX: Drawer chat styling */
 .chat-message.drawer-chat {
     background: #fff3cd;
     border-left: 3px solid var(--accent);
@@ -829,7 +828,6 @@ html, body {
     transition: border-color 0.2s;
     height: 34px;
     min-height: 34px;
-    /* CRITICAL FIX: Prevent password hints */
     -webkit-text-security: none;
 }
 
