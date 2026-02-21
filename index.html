@@ -13,14 +13,13 @@
         <div class="login-container">
             <div class="logo-section">
                 <div class="logo-icon">🎨</div>
-                <h1>misbbm 15</h1>
+                <h1>Skribbl.io13</h1>
                 <p class="tagline">Draw, guess, and have fun!</p>
             </div>
             
             <div class="login-box">
                 <div class="input-group">
                     <label for="playerName">Your Name</label>
-                    <!-- CRITICAL FIX: autocomplete="off" and no password hints -->
                     <input type="text" id="playerName" placeholder="Enter your name" maxlength="12" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                     <span class="input-hint">Max 12 characters</span>
                 </div>
@@ -147,9 +146,7 @@
                         <span>💬 Chat</span>
                     </div>
                     <div class="chat-messages" id="chatMessages"></div>
-                    <!-- CRITICAL FIX: Always visible chat input -->
                     <div class="chat-input-area" id="chatInputArea">
-                        <!-- CRITICAL FIX: Normal text input, no password hints -->
                         <input type="text" 
                                id="chatInput" 
                                placeholder="Type your guess here..." 
