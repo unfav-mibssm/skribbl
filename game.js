@@ -39,10 +39,8 @@ let timerInterval = null;
 let autoRestartTimer = null;
 let wordSelectTimer = null;
 
-// FIX: Better keyboard handling
 let canvasBackup = null;
 let isKeyboardOpen = false;
-let keyboardFixAttempts = 0;
 
 let roomRef, playersRef, chatRef, drawingRef, gameRef;
 
@@ -75,13 +73,11 @@ document.addEventListener('DOMContentLoaded', () => {
     initPullToRefresh();
     initKeyboardHandling();
     
-    // FIX: Better chat input handling
     const chatInput = document.getElementById('chatInput');
     chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
     });
     
-    // Prevent zoom on iOS
     chatInput.addEventListener('focus', () => {
         document.body.style.transform = 'scale(1)';
     });
@@ -89,37 +85,27 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('popupOverlay').addEventListener('click', closePopups);
 });
 
-// CRITICAL FIX: Better keyboard handling to prevent canvas clear
 function initKeyboardHandling() {
     const chatInput = document.getElementById('chatInput');
     
-    // Save canvas before keyboard opens
     chatInput.addEventListener('focus', () => {
         isKeyboardOpen = true;
-        keyboardFixAttempts = 0;
         
-        // Multiple backup attempts
         const saveCanvas = () => {
             if (canvas && ctx && canvas.width > 0) {
                 try {
                     canvasBackup = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    console.log('Canvas backed up for keyboard');
-                } catch(e) {
-                    console.log('Canvas backup failed:', e);
-                }
+                } catch(e) {}
             }
         };
         
         saveCanvas();
-        // Backup again after short delay to ensure capture
         setTimeout(saveCanvas, 50);
     });
     
-    // Restore canvas after keyboard closes
     chatInput.addEventListener('blur', () => {
         isKeyboardOpen = false;
         
-        // Multiple restore attempts with increasing delays
         const restoreAttempts = [0, 100, 300, 500];
         
         restoreAttempts.forEach(delay => {
@@ -127,18 +113,13 @@ function initKeyboardHandling() {
                 if (canvasBackup && ctx) {
                     try {
                         ctx.putImageData(canvasBackup, 0, 0);
-                        console.log('Canvas restored from backup');
-                    } catch(e) {
-                        console.log('Canvas restore failed:', e);
-                    }
+                    } catch(e) {}
                 }
-                // Also redraw from history as backup
                 redraw();
             }, delay);
         });
     });
     
-    // Handle visual viewport changes
     if (window.visualViewport) {
         let lastHeight = window.visualViewport.height;
         let keyboardWasOpen = false;
@@ -147,24 +128,20 @@ function initKeyboardHandling() {
             const newHeight = window.visualViewport.height;
             const heightDiff = lastHeight - newHeight;
             
-            // Keyboard opened
             if (heightDiff > 150 && !keyboardWasOpen) {
                 keyboardWasOpen = true;
                 isKeyboardOpen = true;
                 
-                // Save canvas immediately
                 if (canvas && ctx) {
                     try {
                         canvasBackup = ctx.getImageData(0, 0, canvas.width, canvas.height);
                     } catch(e) {}
                 }
             }
-            // Keyboard closed
             else if (heightDiff < -150 && keyboardWasOpen) {
                 keyboardWasOpen = false;
                 isKeyboardOpen = false;
                 
-                // Restore with multiple attempts
                 [0, 100, 300].forEach(delay => {
                     setTimeout(() => {
                         if (canvasBackup && ctx) {
@@ -236,22 +213,19 @@ function initPullToRefresh() {
 }
 
 // ==========================================
-// CANVAS - CRITICAL FIXES FOR KEYBOARD & STROKES
+// CANVAS
 // ==========================================
 
 function initCanvas() {
     canvas = document.getElementById('gameCanvas');
     ctx = canvas.getContext('2d', { willReadFrequently: true });
     
-    // Initial sizing
     resizeCanvas();
     
-    // CRITICAL FIX: Only resize on actual window resize, never on keyboard
     let lastWindowWidth = window.innerWidth;
     let lastWindowHeight = window.innerHeight;
     
     window.addEventListener('resize', () => {
-        // Only resize if actual window dimensions changed (not keyboard)
         const widthChanged = Math.abs(window.innerWidth - lastWindowWidth) > 50;
         const heightChanged = Math.abs(window.innerHeight - lastWindowHeight) > 50;
         
@@ -259,14 +233,12 @@ function initCanvas() {
             lastWindowWidth = window.innerWidth;
             lastWindowHeight = window.innerHeight;
             
-            // Don't resize if keyboard was recently open
             if (!isKeyboardOpen && !canvasBackup) {
                 setTimeout(resizeCanvas, 100);
             }
         }
     });
     
-    // Drawing events
     canvas.addEventListener('mousedown', startDraw);
     canvas.addEventListener('mousemove', draw);
     canvas.addEventListener('mouseup', endDraw);
@@ -279,21 +251,17 @@ function initCanvas() {
     clearCanvas();
 }
 
-// CRITICAL FIX: Never resize when keyboard backup exists
 function resizeCanvas() {
     const wrapper = document.querySelector('.canvas-wrapper');
     if (!wrapper) return;
     
-    // NEVER resize if we have keyboard backup
     if (canvasBackup || isKeyboardOpen) {
-        console.log('Blocking resize - keyboard active or backup exists');
         return;
     }
     
     const wrapperWidth = wrapper.clientWidth;
     const wrapperHeight = wrapper.clientHeight;
     
-    // Calculate size maintaining 4:3 aspect ratio
     let width = wrapperWidth;
     let height = width * 0.75;
     
@@ -302,16 +270,12 @@ function resizeCanvas() {
         width = height / 0.75;
     }
     
-    // Only resize if dimensions changed significantly
     if (Math.abs(canvas.width - width) > 5 || Math.abs(canvas.height - height) > 5) {
-        // Save current content
         let savedData = null;
         if (ctx && canvas.width > 0 && canvas.height > 0) {
             try {
                 savedData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            } catch(e) {
-                console.log('Could not backup canvas for resize');
-            }
+            } catch(e) {}
         }
         
         canvas.width = width;
@@ -320,13 +284,10 @@ function resizeCanvas() {
         canvas.style.width = width + 'px';
         canvas.style.height = height + 'px';
         
-        // Restore content
         if (savedData) {
             try {
                 ctx.putImageData(savedData, 0, 0);
-                console.log('Canvas restored after resize');
             } catch(e) {
-                console.log('Could not restore after resize, redrawing...');
                 redraw();
             }
         } else {
@@ -339,7 +300,6 @@ function clearCanvas() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     drawingHistory = [];
-    // Don't clear canvasBackup here - only explicit clear should remove it
 }
 
 // ==========================================
@@ -395,7 +355,7 @@ function initToolbar() {
     document.getElementById('undoBtn').onclick = undo;
     document.getElementById('clearBtn').onclick = () => {
         clearCanvas();
-        canvasBackup = null; // Clear backup on explicit clear
+        canvasBackup = null;
         sendDrawData('clear');
     };
 }
@@ -427,7 +387,7 @@ function closePopups() {
 }
 
 // ==========================================
-// DRAWING FUNCTIONS - CRITICAL FIX FOR STROKE SYNC
+// DRAWING FUNCTIONS
 // ==========================================
 
 function getPos(e) {
@@ -454,7 +414,6 @@ function getPos(e) {
 let lastPoint = null;
 let currentStroke = null;
 
-// CRITICAL FIX: Immediately send stroke start to Firebase
 function startDraw(e) {
     if (!gameState.isDrawer || !gameState.isGameActive) return;
     e.preventDefault();
@@ -480,14 +439,12 @@ function startDraw(e) {
     ctx.lineWidth = currentSize;
     ctx.strokeStyle = currentTool === 'eraser' ? '#ffffff' : currentColor;
     
-    // Create stroke object
     currentStroke = {
         color: ctx.strokeStyle,
         size: currentSize,
         points: [{ x: pos.x, y: pos.y }]
     };
     
-    // CRITICAL: Send to Firebase IMMEDIATELY, don't wait
     sendDrawData('start', { 
         x: pos.x, 
         y: pos.y, 
@@ -496,7 +453,6 @@ function startDraw(e) {
     });
 }
 
-// CRITICAL FIX: Send every point immediately
 function draw(e) {
     if (!isDrawing || !gameState.isDrawer) return;
     e.preventDefault();
@@ -517,12 +473,10 @@ function draw(e) {
         ctx.beginPath();
         ctx.moveTo(midX, midY);
         
-        // Add to current stroke
         if (currentStroke) {
             currentStroke.points.push({ x: pos.x, y: pos.y });
         }
         
-        // CRITICAL: Send to Firebase IMMEDIATELY with every point
         sendDrawData('draw', { 
             x: pos.x, 
             y: pos.y, 
@@ -540,7 +494,6 @@ function endDraw(e) {
     lastPoint = null;
     ctx.beginPath();
     
-    // Save to history
     if (currentStroke && currentStroke.points.length > 1) {
         drawingHistory.push(currentStroke);
     }
@@ -665,10 +618,9 @@ function redraw() {
 }
 
 // ==========================================
-// FIREBASE SYNC - CRITICAL FIX FOR STROKE VISIBILITY
+// FIREBASE SYNC
 // ==========================================
 
-// CRITICAL FIX: Use push with high priority, no batching
 function sendDrawData(type, data) {
     if (!roomRef || !drawingRef) return;
     
@@ -676,25 +628,20 @@ function sendDrawData(type, data) {
         type: type,
         player: gameState.playerId,
         timestamp: firebase.database.ServerValue.TIMESTAMP,
-        // Add sequence number for ordering
         seq: Date.now()
     };
     
     if (data) Object.assign(payload, data);
     
-    // Send immediately, don't batch
     drawingRef.push(payload).catch(err => {
         console.error('Failed to send draw data:', err);
     });
 }
 
-// CRITICAL FIX: Listen to all drawing data with no filtering
 function listenDrawing() {
-    // Clear existing drawings when round starts
     gameRef.child('state').on('value', (snap) => {
         const state = snap.val();
         if (state === 'drawing' && !gameState.isDrawer) {
-            // Small delay to ensure we get all data
             setTimeout(() => {
                 clearCanvas();
                 remoteStroke = null;
@@ -702,22 +649,15 @@ function listenDrawing() {
         }
     });
     
-    // CRITICAL: Listen to ALL child_added events, process immediately
     drawingRef.on('child_added', (snap) => {
         const data = snap.val();
         if (!data) return;
-        
-        // Skip my own drawings (I already see them)
         if (data.player === gameState.playerId) return;
-        
-        // Process immediately
         handleRemoteDraw(data);
     });
 }
 
-// CRITICAL FIX: Process remote draws immediately
 function handleRemoteDraw(data) {
-    // Ensure we have valid data
     if (!data || !data.type) return;
     
     switch(data.type) {
@@ -738,7 +678,6 @@ function handleRemoteDraw(data) {
             
         case 'draw':
             if (!remoteStroke) {
-                // If we missed the start, create from this point
                 remoteStroke = {
                     color: data.color || '#000000',
                     size: data.size || 4,
@@ -777,16 +716,11 @@ function handleRemoteDraw(data) {
         case 'clear':
             clearCanvas();
             break;
-            
-        case 'undo':
-            // For simplicity, just clear and request redraw from history
-            // In a full implementation, you'd sync history
-            break;
     }
 }
 
 // ==========================================
-// GAME LOGIC - CRITICAL FIXES FOR ROUNDS & JOINING
+// GAME LOGIC - CRITICAL FIXES
 // ==========================================
 
 function joinGame() {
@@ -830,10 +764,7 @@ function createRoom(code) {
         drawer: null,
         word: null,
         allGuessed: false,
-        playerList: [],
-        roundStartTime: null,
-        // Track who has drawn this round
-        drawnThisRound: []
+        playerList: []
     }).then(() => {
         addPlayer();
     }).catch(err => {
@@ -862,8 +793,6 @@ function joinRoom(code) {
         drawingRef = roomRef.child('drawing');
         gameRef = roomRef.child('game');
         
-        // CRITICAL FIX: Don't reset game if joining mid-round
-        // Just add player to existing game
         addPlayer(roomData);
         
     }, (err) => {
@@ -872,18 +801,15 @@ function joinRoom(code) {
     });
 }
 
-// CRITICAL FIX: Add player without resetting game
 function addPlayer(existingRoomData = null) {
     const playerData = {
         name: gameState.playerName,
         score: 0,
         joined: Date.now(),
         hasGuessed: false,
-        // If joining mid-game, they haven't guessed this word yet
         guessedCurrentWord: false
     };
     
-    // If game is active, set hasGuessed based on current state
     if (existingRoomData && existingRoomData.state === 'drawing') {
         playerData.hasGuessed = false;
     }
@@ -891,9 +817,7 @@ function addPlayer(existingRoomData = null) {
     playersRef.child(gameState.playerId).set(playerData).then(() => {
         playersRef.child(gameState.playerId).onDisconnect().remove();
         
-        // If joining existing game, don't reset - just update player list
         if (existingRoomData && existingRoomData.state !== 'waiting') {
-            // Add to player list if not already there
             const currentList = existingRoomData.playerList || [];
             if (!currentList.includes(gameState.playerId)) {
                 const newList = [...currentList, gameState.playerId];
@@ -910,7 +834,6 @@ function addPlayer(existingRoomData = null) {
 }
 
 function setupListeners() {
-    // Players listener
     playersRef.on('value', (snap) => {
         const previousPlayers = { ...gameState.players };
         gameState.players = snap.val() || {};
@@ -920,7 +843,6 @@ function setupListeners() {
         const prevIds = Object.keys(previousPlayers);
         const currentIds = Object.keys(gameState.players);
         
-        // New player joined
         if (prevIds.length > 0 && currentIds.length > prevIds.length) {
             const joinedId = currentIds.find(id => !prevIds.includes(id));
             if (joinedId && joinedId !== gameState.playerId) {
@@ -928,7 +850,6 @@ function setupListeners() {
             }
         }
         
-        // Player left
         if (prevIds.length > 0 && currentIds.length < prevIds.length) {
             const leftId = prevIds.find(id => !currentIds.includes(id));
             if (leftId && previousPlayers[leftId]) {
@@ -954,20 +875,14 @@ function setupListeners() {
         
         gameState.lastPlayerCount = currentIds.length;
         
-        // Only check start if waiting and have 2+ players
-        if (!gameState.gameStarted) {
-            checkStartGame();
-        }
+        // CRITICAL FIX: Check start game on every player change
+        checkStartGame();
     });
     
-    // Chat listener - CRITICAL FIX: Show all messages to everyone including drawer
     chatRef.limitToLast(100).on('child_added', (snap) => {
         const msg = snap.val();
         if (!msg) return;
         
-        // Show message if:
-        // 1. It's after I joined
-        // 2. It passes visibility rules
         if (msg.time >= gameState.joinTime && shouldShowMessage(msg)) {
             displayMessage(msg);
             
@@ -977,7 +892,6 @@ function setupListeners() {
         }
     });
     
-    // Game state listener
     gameRef.on('value', (snap) => {
         const game = snap.val();
         if (game) {
@@ -999,7 +913,6 @@ function handleDrawerLeft() {
         const playerList = game.playerList || Object.keys(gameState.players);
         let nextIndex = (game.currentDrawerIndex + 1) % playerList.length;
         
-        // Find next valid drawer
         let attempts = 0;
         while (attempts < playerList.length) {
             if (gameState.players[playerList[nextIndex]]) break;
@@ -1019,58 +932,51 @@ function handleDrawerLeft() {
     });
 }
 
-// CRITICAL FIX: Only start if waiting and have 2+ players
+// CRITICAL FIX: Start game with 1+ players, first player becomes drawer immediately
 function checkStartGame() {
     const playerIds = Object.keys(gameState.players);
     
-    // Only start if we're in waiting state and have 2+ players
-    if (playerIds.length >= 2 && !gameState.gameStarted) {
-        gameRef.once('value', (snap) => {
-            const game = snap.val();
-            if (game && game.state === 'waiting') {
-                gameState.playerList = playerIds;
-                
-                const firstPlayer = playerIds[0];
-                
-                gameRef.update({
-                    state: 'choosing',
-                    playerList: playerIds,
-                    currentDrawerIndex: 0,
-                    drawer: firstPlayer,
-                    round: 1,
-                    drawnThisRound: [firstPlayer] // Track who will draw
-                }).then(() => {
-                    gameState.gameStarted = true;
-                });
-            }
+    // Need at least 1 player to start
+    if (playerIds.length === 0) return;
+    
+    gameRef.once('value', (snap) => {
+        const game = snap.val();
+        if (!game) return;
+        
+        // If already started, don't restart
+        if (game.state !== 'waiting') return;
+        
+        // Start game with current players
+        const firstPlayer = playerIds[0];
+        
+        gameState.playerList = playerIds;
+        gameState.gameStarted = true;
+        
+        gameRef.update({
+            state: 'choosing',
+            playerList: playerIds,
+            currentDrawerIndex: 0,
+            drawer: firstPlayer,
+            round: 1
         });
-    }
+    });
 }
 
-// CRITICAL FIX: Proper message visibility - ALL messages visible to ALL players
 function shouldShowMessage(msg) {
-    // Always show these types to everyone
     if (msg.type === 'system') return true;
     if (msg.type === 'correct') return true;
-    
-    // Show my own messages
     if (msg.player === gameState.playerId) return true;
     
     const me = gameState.players[gameState.playerId];
     const sender = gameState.players[msg.player];
     
-    // If I'm the drawer, show all messages except guesses from non-guessers
     if (gameState.isDrawer) {
-        // Show chat from guessers who got it right
         if (msg.type === 'guesser_chat') return true;
-        // Show hints
         if (msg.isClose) return true;
-        // Don't show wrong guesses (they're trying to guess)
         if (msg.type === 'guess' && !sender?.hasGuessed) return false;
         return true;
     }
     
-    // If I've guessed correctly, show chat from other correct guessers and drawer
     if (me && me.hasGuessed) {
         if (msg.type === 'guesser_chat') return true;
         if (sender && sender.hasGuessed) return true;
@@ -1078,26 +984,20 @@ function shouldShowMessage(msg) {
         return false;
     }
     
-    // If I haven't guessed, show guesses and close hints
     if (!me || !me.hasGuessed) {
         if (msg.type === 'guess') return true;
         if (msg.isClose) return true;
-        // Don't show chat from other guessers (spoiler)
         if (msg.type === 'guesser_chat') return false;
     }
     
     return true;
 }
 
-// ==========================================
-// CRITICAL FIX: handleGameChange - Round Order & State Management
-// ==========================================
 function handleGameChange(game) {
     const previousState = gameState.lastState;
     const previousDrawer = gameState.lastDrawer;
     const previousRound = gameState.lastRound;
     
-    // Validate round number - prevent going backwards
     const validRound = Math.max(1, Math.min(game.round || 1, 10));
     
     gameState.game = game;
@@ -1107,33 +1007,23 @@ function handleGameChange(game) {
     gameState.playerList = game.playerList || Object.keys(gameState.players);
     gameState.currentDrawerIndex = game.currentDrawerIndex || 0;
     
-    // Update tracking
     gameState.lastState = game.state;
     gameState.lastDrawer = game.drawer;
     gameState.lastRound = validRound;
     
-    // Update UI
     document.getElementById('roundInfo').textContent = `Round ${gameState.round} of ${gameState.maxRounds}`;
     document.getElementById('timerDisplay').textContent = game.timer || 80;
     
     const wasDrawer = gameState.isDrawer;
-    const wasActive = gameState.isGameActive;
     gameState.isDrawer = game.drawer === gameState.playerId;
     gameState.currentWord = game.word;
     
-    // CRITICAL FIX: Word display - show revealed word to guesser, hide from others
     updateWordDisplay(game.word);
     
     const waitingOverlay = document.getElementById('waitingOverlay');
     const roundOverlay = document.getElementById('roundOverlay');
     const wordModal = document.getElementById('wordModal');
     
-    // Check if state actually changed
-    const stateChanged = game.state !== previousState || 
-                        game.drawer !== previousDrawer || 
-                        validRound !== previousRound;
-    
-    // Process state
     switch(game.state) {
         case 'waiting':
             waitingOverlay.classList.remove('show');
@@ -1153,8 +1043,6 @@ function handleGameChange(game) {
             }
             roundOverlay.classList.remove('show');
             gameState.isGameActive = false;
-            
-            // Reset guessed state for new round
             gameState.hasGuessedCurrentWord = false;
             break;
             
@@ -1164,11 +1052,9 @@ function handleGameChange(game) {
             wordModal.classList.remove('show');
             gameState.isGameActive = true;
             
-            // Reset hasGuessed for all players at round start
             if (previousState === 'choosing' || game.timer === 80) {
                 gameState.hasGuessedCurrentWord = false;
                 
-                // Only drawer resets player states
                 if (gameState.isDrawer) {
                     Object.keys(gameState.players).forEach(pid => {
                         if (pid !== game.drawer) {
@@ -1181,7 +1067,6 @@ function handleGameChange(game) {
                 }
             }
             
-            // Only drawer starts timer
             if (!timerInterval && gameState.isDrawer) {
                 startTimer();
             }
@@ -1201,7 +1086,6 @@ function handleGameChange(game) {
             break;
     }
     
-    // Handle drawer UI changes
     if (gameState.isDrawer !== wasDrawer) {
         if (gameState.isDrawer) {
             becomeDrawer();
@@ -1211,7 +1095,6 @@ function handleGameChange(game) {
     }
 }
 
-// CRITICAL FIX: Update word display based on player state
 function updateWordDisplay(word) {
     const wordDisplay = document.getElementById('wordDisplay');
     
@@ -1220,7 +1103,6 @@ function updateWordDisplay(word) {
         return;
     }
     
-    // Drawer sees the word
     if (gameState.isDrawer) {
         wordDisplay.textContent = word;
         return;
@@ -1228,13 +1110,11 @@ function updateWordDisplay(word) {
     
     const me = gameState.players[gameState.playerId];
     
-    // If I've guessed correctly, show me the revealed word
     if (me && me.hasGuessed) {
         wordDisplay.textContent = word.toUpperCase();
         return;
     }
     
-    // Others see underscores
     const display = word.split('').map(c => c === ' ' ? ' ' : '_').join(' ');
     wordDisplay.textContent = display;
 }
@@ -1244,7 +1124,6 @@ function becomeDrawer() {
     document.getElementById('drawerBadge').classList.add('show');
     document.getElementById('toolbarContainer').classList.add('show');
     
-    // CRITICAL FIX: Drawer can chat - enable chat input
     const chatInput = document.getElementById('chatInput');
     chatInput.placeholder = 'Chat with players...';
     chatInput.disabled = false;
@@ -1260,7 +1139,6 @@ function stopDrawer() {
     document.getElementById('toolbarContainer').classList.remove('show');
     document.getElementById('wordModal').classList.remove('show');
     
-    // Reset chat placeholder for guesser
     const chatInput = document.getElementById('chatInput');
     chatInput.placeholder = 'Type your guess here...';
     chatInput.disabled = false;
@@ -1283,7 +1161,6 @@ function showWordSelect() {
     
     document.getElementById('wordModal').classList.add('show');
     
-    // Clear any existing timer
     if (wordSelectTimer) clearInterval(wordSelectTimer);
     
     let time = 15;
@@ -1304,7 +1181,6 @@ function showWordSelect() {
 }
 
 function selectWord(word) {
-    // Clear word select timer
     if (wordSelectTimer) {
         clearInterval(wordSelectTimer);
         wordSelectTimer = null;
@@ -1324,7 +1200,6 @@ function selectWord(word) {
     });
 }
 
-// CRITICAL FIX: Only drawer updates timer, strict round progression
 function startTimer() {
     if (timerInterval) clearInterval(timerInterval);
     
@@ -1337,7 +1212,6 @@ function startTimer() {
                 return;
             }
             
-            // Only drawer updates timer
             if (game.drawer !== gameState.playerId) {
                 return;
             }
@@ -1356,7 +1230,6 @@ function startTimer() {
     }, 1000);
 }
 
-// CRITICAL FIX: Strict round progression - every player draws once per round cycle
 function endRound() {
     gameRef.once('value', (snap) => {
         const game = snap.val();
@@ -1365,22 +1238,18 @@ function endRound() {
         const playerList = game.playerList || Object.keys(gameState.players);
         const currentIndex = game.currentDrawerIndex || 0;
         
-        // Find next drawer
         let nextIndex = (currentIndex + 1) % playerList.length;
         let nextRound = game.round || 1;
         
-        // If we've cycled through all players, next round
         if (nextIndex === 0) {
             nextRound = (game.round || 1) + 1;
         }
         
-        // Check if game over (exceeded max rounds)
         if (nextRound > 10) {
             gameRef.update({ state: 'game_over' });
             return;
         }
         
-        // Find valid next drawer (skip disconnected players)
         let attempts = 0;
         while (attempts < playerList.length) {
             if (gameState.players[playerList[nextIndex]]) break;
@@ -1397,7 +1266,6 @@ function endRound() {
         
         const nextDrawer = playerList[nextIndex];
         
-        // Go to round_end briefly, then next choosing
         gameRef.update({ state: 'round_end' });
         
         setTimeout(() => {
@@ -1416,7 +1284,7 @@ function endRound() {
 }
 
 // ==========================================
-// CHAT - CRITICAL FIXES FOR DRAWER & VISIBILITY
+// CHAT
 // ==========================================
 
 function sendMessage() {
@@ -1424,7 +1292,6 @@ function sendMessage() {
     const text = input.value.trim();
     if (!text) return;
     
-    // Drawer can always chat
     if (gameState.isDrawer) {
         sendChat('drawer_chat', text);
         input.value = '';
@@ -1433,21 +1300,18 @@ function sendMessage() {
     
     const me = gameState.players[gameState.playerId];
     
-    // If I've already guessed, I can chat
     if (me && me.hasGuessed) {
         sendChat('guesser_chat', text);
         input.value = '';
         return;
     }
     
-    // Check if correct guess
     if (gameState.isGameActive && text.toLowerCase() === gameState.currentWord?.toLowerCase()) {
         handleCorrectGuess();
         input.value = '';
         return;
     }
     
-    // Regular guess
     const similarity = calcSimilarity(text.toLowerCase(), gameState.currentWord?.toLowerCase() || '');
     const isClose = similarity > 0.6 && similarity < 1;
     
@@ -1468,10 +1332,8 @@ function handleCorrectGuess() {
     const me = gameState.players[gameState.playerId];
     if (me && me.hasGuessed) return;
     
-    // Calculate points based on time remaining
     const points = Math.max(10, Math.floor(gameState.timer / 8) * 10);
     
-    // Update my score and guessed status
     playersRef.child(gameState.playerId).update({
         score: (me?.score || 0) + points,
         hasGuessed: true,
@@ -1481,13 +1343,11 @@ function handleCorrectGuess() {
     sendChat('correct', `guessed correctly! (+${points})`);
     playSound('correct');
     
-    // CRITICAL FIX: Update word display immediately for this player
     updateWordDisplay(gameState.currentWord);
     
     checkAllGuessed();
 }
 
-// CRITICAL FIX: Check all guessed with proper validation
 function checkAllGuessed() {
     const allPlayers = Object.keys(gameState.players);
     if (allPlayers.length < 2) return;
@@ -1498,7 +1358,6 @@ function checkAllGuessed() {
     const allCorrect = guessers.every(id => gameState.players[id]?.hasGuessed);
     
     if (allCorrect && !gameState.allGuessed) {
-        // Award drawer bonus
         const drawer = gameState.players[gameState.game?.drawer];
         if (drawer) {
             playersRef.child(gameState.game.drawer).update({
@@ -1522,7 +1381,6 @@ function sendChat(type, text, isClose = false) {
     });
 }
 
-// CRITICAL FIX: Display all messages properly
 function displayMessage(msg) {
     const container = document.getElementById('chatMessages');
     const div = document.createElement('div');
@@ -1535,13 +1393,11 @@ function displayMessage(msg) {
         div.classList.add('correct');
         div.innerHTML = `<span class="username">${msg.name}</span> ${msg.text}`;
     } else if (msg.type === 'drawer_chat') {
-        // Drawer chat styled differently
         div.classList.add('drawer-chat');
         div.style.background = '#fff3cd';
         div.style.borderLeft = '3px solid var(--accent)';
         div.innerHTML = `<span class="username" style="color:var(--accent)">✏️ ${msg.name}</span> ${msg.text}`;
     } else if (msg.type === 'guesser_chat') {
-        // Guesser chat
         div.classList.add('guesser-chat');
         div.style.background = '#d4edda';
         div.innerHTML = `<span class="username" style="color:var(--success)">✓ ${msg.name}</span> ${msg.text}`;
@@ -1694,8 +1550,7 @@ function playAgain() {
         currentDrawerIndex: 0,
         drawer: playerIds[0] || gameState.playerId,
         word: null,
-        allGuessed: false,
-        drawnThisRound: [playerIds[0] || gameState.playerId]
+        allGuessed: false
     });
     
     Object.keys(gameState.players).forEach(pid => {
@@ -1710,7 +1565,6 @@ function playAgain() {
 }
 
 function exitGame() {
-    // Clean up all listeners
     if (playersRef) playersRef.off();
     if (chatRef) chatRef.off();
     if (gameRef) gameRef.off();
@@ -1738,4 +1592,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v11.0 - ALL BUGS FIXED!');
+console.log('🎮 Game engine v12.0 - SINGLE PLAYER FIX!');
