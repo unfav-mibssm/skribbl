@@ -27,7 +27,6 @@ html, body {
     height: 100%;
     font-family: 'Nunito', sans-serif;
     background: var(--dark);
-    /* FIX: Add fallback for older browsers */
     height: 100vh;
     height: 100dvh;
     overflow: hidden;
@@ -195,7 +194,6 @@ html, body {
 #gameScreen {
     display: none;
     width: 100%;
-    /* FIX: Add fallback for older browsers */
     height: 100vh;
     height: 100dvh;
     flex-direction: column;
@@ -784,6 +782,17 @@ html, body {
     padding: 6px 8px;
 }
 
+/* CRITICAL FIX: Drawer chat styling */
+.chat-message.drawer-chat {
+    background: #fff3cd;
+    border-left: 3px solid var(--accent);
+}
+
+.chat-message.guesser-chat {
+    background: #d4edda;
+    border-left: 3px solid var(--success);
+}
+
 .chat-message .username {
     font-weight: 800;
     color: var(--primary);
@@ -820,6 +829,8 @@ html, body {
     transition: border-color 0.2s;
     height: 34px;
     min-height: 34px;
+    /* CRITICAL FIX: Prevent password hints */
+    -webkit-text-security: none;
 }
 
 .chat-input-area input:focus {
