@@ -19,7 +19,8 @@ let gameState = {
     lastPlayerCount: 0,
     leftPlayerName: null,
     gameStarted: false,
-    joinTime: null // NEW: Track when player joined
+    joinTime: null,
+    hasShownGame: false // NEW: Track if we've fully entered the game
 };
 
 let canvas, ctx;
@@ -34,7 +35,6 @@ let timerInterval = null;
 
 let roomRef, playersRef, chatRef, drawingRef, gameRef;
 
-// NEW: Audio elements
 let sounds = {};
 
 const colors = [
@@ -60,7 +60,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initColorPicker();
     initSizePicker();
     initToolbar();
-    initSounds(); // NEW: Initialize sounds
+    initSounds();
     
     document.getElementById('chatInput').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
@@ -69,7 +69,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('popupOverlay').addEventListener('click', closePopups);
 });
 
-// NEW: Initialize audio elements
 function initSounds() {
     sounds.join = document.getElementById('soundJoin');
     sounds.correct = document.getElementById('soundCorrect');
@@ -78,7 +77,6 @@ function initSounds() {
     sounds.enter = document.getElementById('soundEnter');
 }
 
-// NEW: Play sound helper
 function playSound(soundName) {
     const sound = sounds[soundName];
     if (sound) {
@@ -113,7 +111,6 @@ function resizeCanvas() {
     const sectionHeight = section.clientHeight;
     const sectionWidth = section.clientWidth;
     
-    // FULL WIDTH - NO PADDING CALCULATION
     let width = sectionWidth;
     let height = width * 0.75;
     
@@ -522,7 +519,7 @@ function joinGame() {
     const code = document.getElementById('roomCode').value.trim().toUpperCase();
     
     gameState.playerName = name;
-    gameState.joinTime = Date.now(); // NEW: Record join time
+    gameState.joinTime = Date.now();
     document.getElementById('loadingOverlay').classList.add('show');
     
     if (!code) {
@@ -613,17 +610,17 @@ function setupListeners() {
         if (prevIds.length > 0 && currentIds.length > prevIds.length) {
             const joinedId = currentIds.find(id => !prevIds.includes(id));
             if (joinedId && joinedId !== gameState.playerId) {
-                playSound('join'); // NEW: Play join sound
+                playSound('join');
             }
         }
         
-        // NEW: Check for players leaving
+        // Check for players leaving
         if (prevIds.length > 0 && currentIds.length < prevIds.length) {
             const leftId = prevIds.find(id => !currentIds.includes(id));
             if (leftId && previousPlayers[leftId]) {
                 gameState.leftPlayerName = previousPlayers[leftId].name;
                 showToast(`${gameState.leftPlayerName} left the game`, 'info');
-                playSound('leave'); // NEW: Play leave sound
+                playSound('leave');
                 
                 gameRef.once('value', (gameSnap) => {
                     const game = gameSnap.val();
@@ -649,11 +646,9 @@ function setupListeners() {
     // MODIFIED: Only show messages sent after join time
     chatRef.limitToLast(100).on('child_added', (snap) => {
         const msg = snap.val();
-        // Only show messages sent after this player joined
         if (msg.time >= gameState.joinTime && shouldShowMessage(msg)) {
             displayMessage(msg);
             
-            // NEW: Play sound for correct guesses by others
             if (msg.type === 'correct' && msg.player !== gameState.playerId) {
                 playSound('correct');
             }
@@ -748,7 +743,13 @@ function continueGame() {
     });
 }
 
+// ==========================================
+// FIXED: handleGameChange - Only show waiting overlay for non-drawers
+// ==========================================
 function handleGameChange(game) {
+    const previousState = gameState.game?.state;
+    const previousDrawer = gameState.game?.drawer;
+    
     gameState.game = game;
     gameState.round = game.round || 1;
     gameState.maxRounds = game.maxRounds || 10;
@@ -760,31 +761,46 @@ function handleGameChange(game) {
     document.getElementById('timerDisplay').textContent = game.timer || 80;
     
     const wasDrawer = gameState.isDrawer;
+    const wasActive = gameState.isGameActive;
     gameState.isDrawer = game.drawer === gameState.playerId;
     gameState.currentWord = game.word;
     
+    // Handle drawer changes
     if (gameState.isDrawer && !wasDrawer) {
         becomeDrawer();
     } else if (!gameState.isDrawer && wasDrawer) {
         stopDrawer();
     }
     
+    // Update word display
     if (gameState.isDrawer && game.word) {
         document.getElementById('wordDisplay').textContent = game.word;
     } else if (game.word) {
         const display = game.word.split('').map(c => c === ' ' ? ' ' : '_').join(' ');
         document.getElementById('wordDisplay').textContent = display;
+    } else {
+        document.getElementById('wordDisplay').textContent = 'Waiting...';
     }
     
+    // ==========================================
+    // FIXED: State handling - ONLY show waiting overlay if NOT drawer
+    // ==========================================
     if (game.state === 'choosing') {
-        document.getElementById('waitingOverlay').classList.add('show');
+        // Only show waiting overlay if you're NOT the drawer
+        if (!gameState.isDrawer) {
+            document.getElementById('waitingOverlay').classList.add('show');
+        } else {
+            document.getElementById('waitingOverlay').classList.remove('show');
+        }
         gameState.isGameActive = false;
+        
     } else if (game.state === 'drawing') {
         document.getElementById('waitingOverlay').classList.remove('show');
         document.getElementById('roundOverlay').classList.remove('show');
         gameState.isGameActive = true;
         
-        if (game.timer === 80) {
+        // Reset hasGuessed for non-drawers when new round starts
+        if (game.timer === 80 && (!wasActive || previousState === 'choosing')) {
             Object.keys(gameState.players).forEach(pid => {
                 if (pid !== game.drawer) {
                     playersRef.child(pid).update({ hasGuessed: false });
@@ -795,9 +811,14 @@ function handleGameChange(game) {
         if (!timerInterval) {
             startTimer();
         }
+        
     } else if (game.state === 'round_end') {
+        // Don't show waiting overlay during round end
+        document.getElementById('waitingOverlay').classList.remove('show');
         showRoundEnd(game.word);
+        
     } else if (game.state === 'game_over') {
+        document.getElementById('waitingOverlay').classList.remove('show');
         showGameOver();
     }
 }
@@ -990,7 +1011,7 @@ function handleCorrectGuess() {
     });
     
     sendChat('correct', `guessed correctly! (+${points})`);
-    playSound('correct'); // NEW: Play sound for own correct guess
+    playSound('correct');
     checkAllGuessed();
 }
 
@@ -1045,8 +1066,6 @@ function displayMessage(msg) {
     container.scrollTop = container.scrollHeight;
 }
 
-// REMOVED: clearChat function completely
-
 // ==========================================
 // UI
 // ==========================================
@@ -1083,7 +1102,7 @@ function updatePlayerList() {
 function showRoundEnd(word) {
     document.getElementById('revealedWord').textContent = word || '---';
     document.getElementById('roundOverlay').classList.add('show');
-    playSound('roundEnd'); // NEW: Play round end sound
+    playSound('roundEnd');
     
     const scoresDiv = document.getElementById('roundScores');
     scoresDiv.innerHTML = '';
@@ -1127,7 +1146,7 @@ function showGame(code) {
     document.getElementById('gameScreen').style.display = 'flex';
     document.getElementById('roomCodeDisplay').textContent = code;
     
-    playSound('enter'); // NEW: Play enter game sound
+    playSound('enter');
     
     setTimeout(() => {
         resizeCanvas();
@@ -1178,4 +1197,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v8.0 - 10 ROUNDS with SOUNDS loaded!');
+console.log('🎮 Game engine v8.1 - BUG FIXES loaded!');
