@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
     <title>Skribbl.io Clone</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
@@ -13,20 +13,20 @@
         <div class="login-container">
             <div class="logo-section">
                 <div class="logo-icon">🎨</div>
-                <h1>Skribbl.io19</h1>
+                <h1>Skribbl.io20</h1>
                 <p class="tagline">Draw, guess, and have fun!</p>
             </div>
             
             <div class="login-box">
                 <div class="input-group">
                     <label for="playerName">Your Name</label>
-                    <input type="text" id="playerName" placeholder="Enter your name" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false">
+                    <input type="text" id="playerName" placeholder="Enter your name" maxlength="12" autocomplete="off">
                     <span class="input-hint">Max 12 characters</span>
                 </div>
                 
                 <div class="input-group">
                     <label for="roomCode">Room Code</label>
-                    <input type="text" id="roomCode" placeholder="Leave empty to create new room" maxlength="4" autocomplete="off" autocorrect="off" spellcheck="false">
+                    <input type="text" id="roomCode" placeholder="Leave empty to create new room" maxlength="8" autocomplete="off">
                     <span class="input-hint">Join existing room or create new</span>
                 </div>
                 
@@ -147,14 +147,7 @@
                     </div>
                     <div class="chat-messages" id="chatMessages"></div>
                     <div class="chat-input-area" id="chatInputArea">
-                        <input type="text" 
-                               id="chatInput" 
-                               placeholder="Type your guess here..." 
-                               maxlength="50" 
-                               autocomplete="off" 
-                               autocorrect="off" 
-                               spellcheck="false"
-                               inputmode="text">
+                        <input type="text" id="chatInput" placeholder="Type your guess here..." maxlength="50" autocomplete="off">
                         <button onclick="sendMessage()" class="send-btn">➤</button>
                     </div>
                 </div>
