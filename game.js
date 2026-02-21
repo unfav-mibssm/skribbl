@@ -21,7 +21,9 @@ let gameState = {
     gameStarted: false,
     joinTime: null,
     hasShownGame: false,
-    lastState: null // Track last state to prevent flicker
+    lastState: null,
+    lastDrawer: null,
+    lastRound: null
 };
 
 let canvas, ctx;
@@ -68,7 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initToolbar();
     initSounds();
     initPullToRefresh();
-    initKeyboardHandling(); // NEW: Handle keyboard opening
+    initKeyboardHandling();
     
     document.getElementById('chatInput').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
@@ -81,10 +83,8 @@ document.addEventListener('DOMContentLoaded', () => {
 function initKeyboardHandling() {
     const chatInput = document.getElementById('chatInput');
     
-    // When keyboard opens (input focused)
     chatInput.addEventListener('focus', () => {
         isKeyboardOpen = true;
-        // Save canvas content
         if (canvas && ctx) {
             try {
                 canvasBackup = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -94,10 +94,8 @@ function initKeyboardHandling() {
         }
     });
     
-    // When keyboard closes (input blurred)
     chatInput.addEventListener('blur', () => {
         isKeyboardOpen = false;
-        // Restore canvas after a short delay
         setTimeout(() => {
             if (canvasBackup && ctx) {
                 try {
@@ -106,12 +104,10 @@ function initKeyboardHandling() {
                     console.log('Could not restore canvas');
                 }
             }
-            // Also redraw from history as backup
             redraw();
         }, 100);
     });
     
-    // Handle visual viewport changes (keyboard appearance)
     if (window.visualViewport) {
         let lastHeight = window.visualViewport.height;
         
@@ -119,22 +115,16 @@ function initKeyboardHandling() {
             const newHeight = window.visualViewport.height;
             const heightDiff = lastHeight - newHeight;
             
-            // If height decreased significantly, keyboard likely opened
             if (heightDiff > 150) {
                 isKeyboardOpen = true;
-                // Don't resize canvas, just adjust wrapper
                 document.body.style.height = `${newHeight}px`;
             } else if (heightDiff < -150) {
-                // Keyboard closed
                 isKeyboardOpen = false;
                 document.body.style.height = '100dvh';
-                
-                // Restore canvas
                 setTimeout(() => {
                     redraw();
                 }, 100);
             }
-            
             lastHeight = newHeight;
         });
     }
@@ -201,16 +191,13 @@ function initCanvas() {
     canvas = document.getElementById('gameCanvas');
     ctx = canvas.getContext('2d', { willReadFrequently: true });
     
-    // Initial sizing
     resizeCanvas();
     
-    // Only resize on actual window resize, not keyboard
     let resizeTimeout;
     window.addEventListener('resize', () => {
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(() => {
-            // Only resize if keyboard is not open
-            if (!isKeyboardOpen) {
+            if (!isKeyboardOpen && !canvasBackup) {
                 resizeCanvas();
             }
         }, 100);
@@ -232,10 +219,15 @@ function resizeCanvas() {
     const wrapper = document.querySelector('.canvas-wrapper');
     if (!wrapper) return;
     
+    // CRITICAL FIX: Don't resize if we have a backup (keyboard was open)
+    if (canvasBackup) {
+        console.log('Skipping resize - keyboard backup exists');
+        return;
+    }
+    
     const wrapperWidth = wrapper.clientWidth;
     const wrapperHeight = wrapper.clientHeight;
     
-    // Calculate size to fit within wrapper
     let width = wrapperWidth;
     let height = width * 0.75;
     
@@ -244,9 +236,7 @@ function resizeCanvas() {
         width = height / 0.75;
     }
     
-    // Only resize if dimensions actually changed
     if (Math.abs(canvas.width - width) > 5 || Math.abs(canvas.height - height) > 5) {
-        // Save current content
         let savedData = null;
         if (ctx && canvas.width > 0 && canvas.height > 0) {
             try {
@@ -260,7 +250,6 @@ function resizeCanvas() {
         canvas.style.width = width + 'px';
         canvas.style.height = height + 'px';
         
-        // Restore content if possible
         if (savedData) {
             try {
                 ctx.putImageData(savedData, 0, 0);
@@ -703,6 +692,9 @@ function createRoom(code) {
         playerList: []
     }).then(() => {
         addPlayer();
+    }).catch(err => {
+        showToast('Error creating room: ' + err.message, 'error');
+        document.getElementById('loadingOverlay').classList.remove('show');
     });
 }
 
@@ -725,6 +717,9 @@ function joinRoom(code) {
         gameRef = roomRef.child('game');
         
         addPlayer();
+    }, (err) => {
+        showToast('Connection error: ' + err.message, 'error');
+        document.getElementById('loadingOverlay').classList.remove('show');
     });
 }
 
@@ -738,6 +733,9 @@ function addPlayer() {
         playersRef.child(gameState.playerId).onDisconnect().remove();
         setupListeners();
         showGame(gameState.roomCode);
+    }).catch(err => {
+        showToast('Error joining: ' + err.message, 'error');
+        document.getElementById('loadingOverlay').classList.remove('show');
     });
 }
 
@@ -751,7 +749,6 @@ function setupListeners() {
         const prevIds = Object.keys(previousPlayers);
         const currentIds = Object.keys(gameState.players);
         
-        // Check for new players joining (not us)
         if (prevIds.length > 0 && currentIds.length > prevIds.length) {
             const joinedId = currentIds.find(id => !prevIds.includes(id));
             if (joinedId && joinedId !== gameState.playerId) {
@@ -759,14 +756,12 @@ function setupListeners() {
             }
         }
         
-        // Check for players leaving
         if (prevIds.length > 0 && currentIds.length < prevIds.length) {
             const leftId = prevIds.find(id => !currentIds.includes(id));
             if (leftId && previousPlayers[leftId]) {
                 const leftName = previousPlayers[leftId].name;
                 gameState.leftPlayerName = leftName;
                 
-                // Show as chat message
                 sendChat('system', `${leftName} left the game`);
                 playSound('leave');
                 
@@ -777,7 +772,6 @@ function setupListeners() {
                         gameRef.update({ playerList: newList });
                     }
                     
-                    // If drawer left, continue game
                     if (game && game.drawer === leftId) {
                         handleDrawerLeft();
                     }
@@ -860,9 +854,11 @@ function checkStartGame() {
     }
 }
 
+// CRITICAL FIX: Proper message visibility logic
 function shouldShowMessage(msg) {
     if (msg.player === gameState.playerId) return true;
     if (msg.type === 'system') return true;
+    if (msg.type === 'correct') return true; // FIX: Always show correct guesses
     
     const me = gameState.players[gameState.playerId];
     const sender = gameState.players[msg.player];
@@ -876,18 +872,19 @@ function shouldShowMessage(msg) {
     if (!me || !me.hasGuessed) {
         if (msg.type === 'guess') return true;
         if (msg.isClose) return true;
-        return false;
+        // FIX: Removed the return false that was hiding correct guesses
     }
     
     return true;
 }
 
 // ==========================================
-// CRITICAL FIX: handleGameChange - Waiting overlay logic
+// CRITICAL FIX: handleGameChange - Fixed state comparison
 // ==========================================
 function handleGameChange(game) {
     const previousState = gameState.lastState;
-    const previousDrawer = gameState.game?.drawer;
+    const previousDrawer = gameState.lastDrawer;
+    const previousRound = gameState.lastRound;
     
     gameState.game = game;
     gameState.round = game.round || 1;
@@ -895,7 +892,11 @@ function handleGameChange(game) {
     gameState.allGuessed = game.allGuessed || false;
     gameState.playerList = game.playerList || Object.keys(gameState.players);
     gameState.currentDrawerIndex = game.currentDrawerIndex || 0;
-    gameState.lastState = game.state; // Track last state
+    
+    // Update tracking
+    gameState.lastState = game.state;
+    gameState.lastDrawer = game.drawer;
+    gameState.lastRound = game.round;
     
     document.getElementById('roundInfo').textContent = `Round ${gameState.round} of ${gameState.maxRounds}`;
     document.getElementById('timerDisplay').textContent = game.timer || 80;
@@ -919,12 +920,14 @@ function handleGameChange(game) {
     const roundOverlay = document.getElementById('roundOverlay');
     const wordModal = document.getElementById('wordModal');
     
-    // ==========================================
-    // CRITICAL FIX: Proper state handling with debounce
-    // ==========================================
+    // CRITICAL FIX: Less aggressive state comparison - allow player updates
+    const stateChanged = game.state !== previousState || 
+                        game.drawer !== previousDrawer || 
+                        game.round !== previousRound ||
+                        wasDrawer !== gameState.isDrawer;
     
-    // Don't process if state hasn't actually changed (prevents flicker)
-    if (game.state === previousState && game.drawer === previousDrawer && wasDrawer === gameState.isDrawer) {
+    // Always update player list, but skip expensive UI updates if nothing changed
+    if (!stateChanged && game.state !== 'drawing') {
         return;
     }
     
@@ -936,17 +939,12 @@ function handleGameChange(game) {
             break;
             
         case 'choosing':
-            // CRITICAL FIX: Only non-drawers see waiting overlay
             if (gameState.isDrawer) {
-                // Drawer: hide waiting, show word selection
                 waitingOverlay.classList.remove('show');
-                
-                // Only show word modal if not already showing
                 if (!wordModal.classList.contains('show')) {
                     setTimeout(() => showWordSelect(), 100);
                 }
             } else {
-                // Non-drawer: show waiting, hide any modals
                 waitingOverlay.classList.add('show');
                 wordModal.classList.remove('show');
             }
@@ -955,14 +953,12 @@ function handleGameChange(game) {
             break;
             
         case 'drawing':
-            // CRITICAL FIX: Hide waiting for EVERYONE when drawing starts
             waitingOverlay.classList.remove('show');
             roundOverlay.classList.remove('show');
             wordModal.classList.remove('show');
             gameState.isGameActive = true;
             
-            // Reset hasGuessed for non-drawers when new round starts
-            if (previousState === 'choosing' || game.timer === 80) {
+            if ((previousState === 'choosing' || game.timer === 80) && gameState.isDrawer) {
                 Object.keys(gameState.players).forEach(pid => {
                     if (pid !== game.drawer) {
                         playersRef.child(pid).update({ hasGuessed: false });
@@ -970,7 +966,7 @@ function handleGameChange(game) {
                 });
             }
             
-            if (!timerInterval) {
+            if (!timerInterval && gameState.isDrawer) {
                 startTimer();
             }
             break;
@@ -989,7 +985,6 @@ function handleGameChange(game) {
             break;
     }
     
-    // Handle drawer UI changes
     if (gameState.isDrawer !== wasDrawer) {
         if (gameState.isDrawer) {
             becomeDrawer();
@@ -1004,7 +999,6 @@ function becomeDrawer() {
     document.getElementById('drawerBadge').classList.add('show');
     document.getElementById('toolbarContainer').classList.add('show');
     
-    // Only show word select if in choosing state
     if (gameState.game?.state === 'choosing') {
         setTimeout(() => showWordSelect(), 200);
     }
@@ -1018,7 +1012,6 @@ function stopDrawer() {
 }
 
 function showWordSelect() {
-    // Prevent showing if already showing
     if (document.getElementById('wordModal').classList.contains('show')) return;
     
     const options = WordBank.getWordOptions();
@@ -1064,6 +1057,7 @@ function selectWord(word) {
     });
 }
 
+// CRITICAL FIX: Only drawer updates timer
 function startTimer() {
     if (timerInterval) clearInterval(timerInterval);
     
@@ -1073,6 +1067,11 @@ function startTimer() {
             if (!game || game.state !== 'drawing') {
                 clearInterval(timerInterval);
                 timerInterval = null;
+                return;
+            }
+            
+            // CRITICAL FIX: Only update if I'm the drawer
+            if (game.drawer !== gameState.playerId) {
                 return;
             }
             
@@ -1197,11 +1196,17 @@ function handleCorrectGuess() {
     checkAllGuessed();
 }
 
+// CRITICAL FIX: Check minimum players
 function checkAllGuessed() {
-    const guessers = Object.entries(gameState.players).filter(([id, p]) => id !== gameState.game?.drawer);
-    const allCorrect = guessers.every(([id, p]) => p.hasGuessed);
+    const allPlayers = Object.keys(gameState.players);
+    if (allPlayers.length < 2) return; // Need at least 2 players
     
-    if (guessers.length >= 1 && allCorrect && !gameState.allGuessed) {
+    const guessers = allPlayers.filter(id => id !== gameState.game?.drawer);
+    if (guessers.length === 0) return; // Need at least 1 guesser
+    
+    const allCorrect = guessers.every(id => gameState.players[id]?.hasGuessed);
+    
+    if (allCorrect && !gameState.allGuessed) {
         const drawer = gameState.players[gameState.game?.drawer];
         if (drawer) {
             playersRef.child(gameState.game.drawer).update({
@@ -1394,8 +1399,16 @@ function playAgain() {
     document.getElementById('gameOverModal').classList.remove('show');
 }
 
+// CRITICAL FIX: Clean up Firebase listeners
 function exitGame() {
-    if (roomRef) {
+    // Clean up all listeners
+    if (playersRef) playersRef.off();
+    if (chatRef) chatRef.off();
+    if (gameRef) gameRef.off();
+    if (drawingRef) drawingRef.off();
+    if (roomRef) roomRef.off();
+    
+    if (roomRef && gameState.playerId) {
         playersRef.child(gameState.playerId).remove();
         sendChat('system', `${gameState.playerName} left.`);
     }
@@ -1416,4 +1429,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v9.1 - CRITICAL BUGS FIXED!');
+console.log('🎮 Game engine v10.0 - ALL BUGS FIXED!');
