@@ -25,12 +25,12 @@
 html, body {
     width: 100%;
     height: 100%;
-    overflow-x: hidden;
     font-family: 'Nunito', sans-serif;
     background: var(--dark);
-    /* ENABLE PULL TO REFRESH */
-    overscroll-behavior-y: auto;
-    touch-action: pan-y pinch-zoom;
+    /* FIX: Use dvh for dynamic viewport height */
+    height: 100dvh;
+    overflow: hidden;
+    position: fixed;
 }
 
 /* ==========================================
@@ -57,32 +57,6 @@ html, body {
     top: 0;
 }
 
-.pull-spinner {
-    font-size: 20px;
-    animation: bounce 1s infinite;
-}
-
-/* ==========================================
-   BACKGROUND
-   ========================================== */
-.bg-animation {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #f39c12);
-    background-size: 400% 400%;
-    animation: gradientBG 15s ease infinite;
-    z-index: -1;
-}
-
-@keyframes gradientBG {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-}
-
 /* ==========================================
    LOGIN SCREEN
    ========================================== */
@@ -97,6 +71,15 @@ html, body {
     align-items: center;
     padding: 15px;
     z-index: 1000;
+    background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #f39c12);
+    background-size: 400% 400%;
+    animation: gradientBG 15s ease infinite;
+}
+
+@keyframes gradientBG {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
 }
 
 .login-container {
@@ -206,17 +189,18 @@ html, body {
 }
 
 /* ==========================================
-   GAME SCREEN
+   GAME SCREEN - FIXED LAYOUT
    ========================================== */
 #gameScreen {
     display: none;
     width: 100%;
-    height: 100%;
+    height: 100dvh; /* FIX: Use dynamic viewport height */
     flex-direction: column;
     background: #f5f5f5;
-    /* ENABLE SCROLLING FOR PULL TO REFRESH */
-    overflow-y: auto;
-    overscroll-behavior-y: auto;
+    position: fixed;
+    top: 0;
+    left: 0;
+    overflow: hidden;
 }
 
 /* Top Bar */
@@ -230,8 +214,6 @@ html, body {
     padding: 0 15px;
     flex-shrink: 0;
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-    position: sticky;
-    top: 0;
     z-index: 100;
 }
 
@@ -315,7 +297,7 @@ html, body {
     min-height: 0;
 }
 
-/* Canvas Section - TOP 45% */
+/* Canvas Section - TOP 45% - FIXED HEIGHT */
 .canvas-section {
     height: 45%;
     min-height: 0;
@@ -347,6 +329,8 @@ html, body {
     height: 100%;
     max-width: 100%;
     max-height: 100%;
+    /* FIX: Prevent resize when keyboard opens */
+    object-fit: contain;
 }
 
 /* Drawer Badge */
@@ -463,9 +447,10 @@ html, body {
 .toolbar-container {
     display: none;
     flex-shrink: 0;
-    padding: 8px 0;
+    padding: 4px 0;
     background: transparent;
     z-index: 50;
+    height: 60px; /* FIXED HEIGHT */
 }
 
 .toolbar-container.show {
@@ -476,10 +461,12 @@ html, body {
 .toolbar {
     display: flex;
     background: rgba(26, 37, 47, 0.95);
-    padding: 10px 18px;
+    padding: 8px 16px;
     border-radius: 30px;
-    gap: 8px;
+    gap: 6px;
     box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    height: 52px;
+    align-items: center;
 }
 
 .tool-group {
@@ -488,13 +475,13 @@ html, body {
 }
 
 .tool-btn {
-    width: 42px;
-    height: 42px;
+    width: 38px;
+    height: 38px;
     border: none;
     border-radius: 50%;
     background: rgba(255,255,255,0.1);
     color: white;
-    font-size: 18px;
+    font-size: 16px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -517,8 +504,8 @@ html, body {
 }
 
 .color-preview {
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
     background: #000;
     border: 2px solid white;
@@ -663,50 +650,39 @@ html, body {
     display: flex;
     flex-direction: column;
     background: white;
+    /* FIX: Ensure chat panel is always visible */
+    min-height: 0;
 }
 
 .panel-header {
     background: var(--dark);
     color: white;
-    padding: 12px 15px;
-    font-size: 13px;
+    padding: 10px 12px;
+    font-size: 12px;
     font-weight: 700;
     display: flex;
     justify-content: space-between;
     align-items: center;
     text-transform: uppercase;
     flex-shrink: 0;
-}
-
-.clear-btn {
-    background: none;
-    border: none;
-    color: white;
-    cursor: pointer;
-    font-size: 14px;
-    opacity: 0.7;
-    transition: opacity 0.2s;
-}
-
-.clear-btn:hover {
-    opacity: 1;
+    height: 40px;
 }
 
 .players-list {
     flex: 1;
     overflow-y: auto;
-    padding: 12px;
+    padding: 10px;
 }
 
 .player-item {
     background: white;
-    padding: 10px 8px;
-    margin-bottom: 6px;
+    padding: 8px 6px;
+    margin-bottom: 5px;
     border-radius: var(--radius);
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 12px;
+    gap: 6px;
+    font-size: 11px;
     border-left: 3px solid transparent;
     box-shadow: 0 2px 5px rgba(0,0,0,0.08);
     transition: all 0.2s;
@@ -727,8 +703,8 @@ html, body {
 }
 
 .player-avatar {
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
     color: white;
@@ -736,7 +712,7 @@ html, body {
     align-items: center;
     justify-content: center;
     font-weight: 700;
-    font-size: 14px;
+    font-size: 12px;
     flex-shrink: 0;
 }
 
@@ -750,31 +726,33 @@ html, body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 12px;
+    font-size: 11px;
 }
 
 .player-score {
     color: var(--primary);
     font-weight: 800;
-    font-size: 14px;
+    font-size: 12px;
 }
 
 /* Chat */
 .chat-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 12px;
+    padding: 10px;
     background: #f8f9fa;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 5px;
+    /* FIX: Ensure messages don't push input out */
+    min-height: 0;
 }
 
 .chat-message {
-    padding: 10px 12px;
+    padding: 8px 10px;
     border-radius: 10px;
-    font-size: 14px;
-    line-height: 1.4;
+    font-size: 13px;
+    line-height: 1.3;
     word-break: break-word;
     animation: messageIn 0.2s ease;
 }
@@ -799,41 +777,52 @@ html, body {
 .chat-message.system {
     background: #fff3cd;
     text-align: center;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     color: #856404;
     border: 1px solid #ffeaa7;
+    padding: 6px 8px;
 }
 
 .chat-message .username {
     font-weight: 800;
     color: var(--primary);
-    font-size: 11px;
+    font-size: 10px;
     display: block;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    margin-bottom: 3px;
+    margin-bottom: 2px;
 }
 
+/* ==========================================
+   CHAT INPUT - FIXED TO ALWAYS SHOW
+   ========================================== */
 .chat-input-area {
-    padding: 10px;
+    padding: 8px;
     border-top: 1px solid #e0e0e0;
     display: flex;
-    gap: 8px;
+    gap: 6px;
     background: white;
     flex-shrink: 0;
+    height: 50px; /* FIXED HEIGHT */
     min-height: 50px;
+    /* FIX: Always visible, never collapse */
+    position: relative;
+    z-index: 10;
 }
 
 .chat-input-area input {
     flex: 1;
-    padding: 10px 14px;
+    padding: 8px 12px;
     border: 1px solid #ddd;
-    border-radius: 25px;
-    font-size: 14px;
+    border-radius: 20px;
+    font-size: 13px;
     font-family: 'Nunito', sans-serif;
     transition: border-color 0.2s;
-    min-height: 40px;
+    height: 34px;
+    min-height: 34px;
+    /* FIX: Prevent zoom on iOS */
+    font-size: 16px;
 }
 
 .chat-input-area input:focus {
@@ -842,16 +831,19 @@ html, body {
 }
 
 .send-btn {
-    width: 40px;
-    height: 40px;
+    width: 34px;
+    height: 34px;
     border: none;
     border-radius: 50%;
     background: var(--primary);
     color: white;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 12px;
     transition: all 0.2s;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .send-btn:hover {
@@ -882,10 +874,10 @@ html, body {
 
 .word-selection {
     background: white;
-    padding: 30px;
+    padding: 25px;
     border-radius: var(--radius-lg);
     width: 100%;
-    max-width: 420px;
+    max-width: 400px;
     animation: modalIn 0.3s ease;
 }
 
@@ -898,11 +890,11 @@ html, body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 25px;
+    margin-bottom: 20px;
 }
 
 .modal-header h2 {
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 800;
     color: var(--dark);
 }
@@ -910,14 +902,14 @@ html, body {
 .modal-timer {
     background: var(--danger);
     color: white;
-    width: 45px;
-    height: 45px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 800;
-    font-size: 18px;
+    font-size: 16px;
     animation: pulse 1s infinite;
 }
 
@@ -929,16 +921,16 @@ html, body {
 .word-options {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
 }
 
 .word-btn {
-    padding: 22px;
+    padding: 18px;
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
     color: white;
     border: none;
     border-radius: var(--radius);
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 800;
     cursor: pointer;
     text-transform: uppercase;
@@ -974,24 +966,24 @@ html, body {
 
 .game-over-content {
     background: white;
-    padding: 35px;
+    padding: 30px;
     border-radius: var(--radius-lg);
     text-align: center;
     width: 100%;
-    max-width: 480px;
+    max-width: 450px;
     animation: modalIn 0.4s ease;
 }
 
 .trophy {
-    font-size: 60px;
-    margin-bottom: 15px;
+    font-size: 50px;
+    margin-bottom: 10px;
     animation: bounce 1s infinite;
 }
 
 .game-over-content h1 {
-    font-size: 32px;
+    font-size: 28px;
     font-weight: 800;
-    margin-bottom: 25px;
+    margin-bottom: 20px;
     color: var(--dark);
 }
 
@@ -999,9 +991,9 @@ html, body {
 .winner-display {
     background: linear-gradient(135deg, var(--accent) 0%, #e67e22 100%);
     color: white;
-    padding: 20px;
+    padding: 15px;
     border-radius: var(--radius-lg);
-    margin-bottom: 20px;
+    margin-bottom: 15px;
     animation: winnerPulse 2s infinite;
 }
 
@@ -1011,46 +1003,46 @@ html, body {
 }
 
 .winner-crown {
-    font-size: 50px;
-    margin-bottom: 10px;
-}
-
-.winner-name {
-    font-size: 28px;
-    font-weight: 800;
+    font-size: 40px;
     margin-bottom: 5px;
 }
 
+.winner-name {
+    font-size: 24px;
+    font-weight: 800;
+    margin-bottom: 3px;
+}
+
 .winner-score {
-    font-size: 20px;
+    font-size: 18px;
     opacity: 0.9;
 }
 
 .auto-restart-text {
     color: #666;
-    font-size: 14px;
-    margin: 15px 0;
+    font-size: 13px;
+    margin: 12px 0;
     font-style: italic;
 }
 
 .final-scores {
-    max-height: 200px;
+    max-height: 180px;
     overflow-y: auto;
-    margin-bottom: 20px;
+    margin-bottom: 15px;
     background: var(--light);
     border-radius: var(--radius);
-    padding: 15px;
+    padding: 12px;
 }
 
 .final-score-item {
-    padding: 12px;
-    margin: 6px 0;
+    padding: 10px;
+    margin: 5px 0;
     background: white;
     border-radius: var(--radius);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 14px;
+    font-size: 13px;
     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
@@ -1058,37 +1050,37 @@ html, body {
     background: linear-gradient(135deg, var(--accent) 0%, #e67e22 100%);
     color: white;
     font-weight: 800;
-    font-size: 16px;
+    font-size: 15px;
 }
 
 .final-rank {
     font-weight: 800;
-    font-size: 18px;
-    width: 40px;
+    font-size: 16px;
+    width: 35px;
 }
 
 .final-name {
     flex: 1;
-    margin-left: 12px;
+    margin-left: 10px;
     text-align: left;
 }
 
 .final-points {
     font-weight: 800;
-    font-size: 16px;
+    font-size: 14px;
 }
 
 .game-over-actions {
     display: flex;
-    gap: 12px;
+    gap: 10px;
 }
 
 .play-again-btn {
     flex: 1;
-    padding: 16px;
+    padding: 14px;
     border: none;
     border-radius: var(--radius);
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 700;
     cursor: pointer;
     transition: all 0.2s;
@@ -1127,14 +1119,14 @@ html, body {
 
 .toast {
     background: white;
-    padding: 14px 18px;
+    padding: 12px 16px;
     border-radius: var(--radius);
     box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     border-left: 4px solid var(--primary);
     animation: slideIn 0.3s ease;
-    max-width: 300px;
+    max-width: 280px;
 }
 
 .toast.error { border-left-color: var(--danger); }
@@ -1181,7 +1173,7 @@ html, body {
     font-weight: 600;
 }
 
-/* Mobile */
+/* Mobile Optimizations */
 @media (max-width: 768px) {
     .canvas-section {
         height: 45%;
@@ -1197,69 +1189,84 @@ html, body {
     }
     
     .player-item {
-        padding: 8px 6px;
-        font-size: 11px;
-        gap: 6px;
+        padding: 6px 5px;
+        font-size: 10px;
+        gap: 5px;
     }
     
     .player-avatar {
-        width: 28px;
-        height: 28px;
-        font-size: 12px;
-    }
-    
-    .player-name {
+        width: 26px;
+        height: 26px;
         font-size: 11px;
     }
     
+    .player-name {
+        font-size: 10px;
+    }
+    
     .player-score {
-        font-size: 12px;
+        font-size: 11px;
     }
     
     .chat-message {
         font-size: 12px;
-        padding: 8px 10px;
+        padding: 6px 8px;
     }
     
     .chat-input-area {
-        padding: 8px;
-        gap: 6px;
-        min-height: 45px;
+        padding: 6px;
+        gap: 5px;
+        height: 46px;
+        min-height: 46px;
     }
     
     .chat-input-area input {
-        padding: 8px 12px;
-        font-size: 13px;
-        min-height: 36px;
+        padding: 6px 10px;
+        font-size: 16px; /* Prevent zoom */
+        height: 32px;
     }
     
     .send-btn {
-        width: 36px;
-        height: 36px;
-        font-size: 12px;
+        width: 32px;
+        height: 32px;
+        font-size: 11px;
+    }
+    
+    .toolbar-container {
+        height: 54px;
+        padding: 3px 0;
+    }
+    
+    .toolbar {
+        height: 48px;
+        padding: 6px 12px;
     }
     
     .tool-btn {
         width: 36px;
         height: 36px;
-        font-size: 16px;
+        font-size: 15px;
     }
     
-    .toolbar {
-        padding: 8px 12px;
-        gap: 6px;
+    .color-preview {
+        width: 18px;
+        height: 18px;
     }
     
-    /* Winner display mobile */
-    .winner-display {
+    .word-btn {
         padding: 15px;
+        font-size: 18px;
+    }
+    
+    .winner-display {
+        padding: 12px;
     }
     
     .winner-crown {
-        font-size: 40px;
+        font-size: 35px;
     }
     
     .winner-name {
-        font-size: 22px;
+        font-size: 20px;
     }
 }
