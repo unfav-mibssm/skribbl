@@ -27,7 +27,6 @@ html, body {
     height: 100%;
     font-family: 'Nunito', sans-serif;
     background: var(--dark);
-    /* FIX: Add fallback for older browsers */
     height: 100vh;
     height: 100dvh;
     overflow: hidden;
@@ -195,7 +194,6 @@ html, body {
 #gameScreen {
     display: none;
     width: 100%;
-    /* FIX: Add fallback for older browsers */
     height: 100vh;
     height: 100dvh;
     flex-direction: column;
@@ -272,6 +270,19 @@ html, body {
     font-family: monospace;
     text-transform: uppercase;
     color: var(--accent);
+    transition: all 0.3s ease;
+}
+
+.word-display.revealed {
+    color: var(--success) !important;
+    text-shadow: 0 0 10px rgba(46, 204, 113, 0.5);
+    animation: revealPulse 0.5s ease;
+}
+
+@keyframes revealPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
 }
 
 .top-right {
@@ -321,8 +332,11 @@ html, body {
     align-items: center;
     justify-content: center;
     padding: 0;
+    flex-shrink: 0;
+    overflow: hidden;
 }
 
+/* CRITICAL FIX: Canvas never clears on keyboard */
 #gameCanvas {
     background: white;
     box-shadow: 0 4px 15px rgba(0,0,0,0.2);
@@ -333,6 +347,7 @@ html, body {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
+    transform: none !important;
 }
 
 /* Drawer Badge */
