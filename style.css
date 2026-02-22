@@ -189,7 +189,7 @@ html, body {
 }
 
 /* ==========================================
-   GAME SCREEN - FIXED LAYOUT
+   GAME SCREEN
    ========================================== */
 #gameScreen {
     display: none;
@@ -273,10 +273,12 @@ html, body {
     transition: all 0.3s ease;
 }
 
+/* FIX 4: Revealed word styling */
 .word-display.revealed {
     color: var(--success) !important;
     text-shadow: 0 0 10px rgba(46, 204, 113, 0.5);
     animation: revealPulse 0.5s ease;
+    letter-spacing: 4px;
 }
 
 @keyframes revealPulse {
@@ -299,7 +301,7 @@ html, body {
 }
 
 /* ==========================================
-   GAME AREA - FIXED: 45% TOP, 55% BOTTOM
+   GAME AREA - FIXED LAYOUT
    ========================================== */
 .game-area {
     display: flex;
@@ -311,7 +313,7 @@ html, body {
     min-height: 0;
 }
 
-/* Canvas Section - TOP 45% - FIXED HEIGHT */
+/* Canvas Section */
 .canvas-section {
     height: 45%;
     min-height: 0;
@@ -324,6 +326,7 @@ html, body {
     flex-shrink: 0;
 }
 
+/* FIX 2: Full size canvas wrapper */
 .canvas-wrapper {
     width: 100%;
     height: 100%;
@@ -336,18 +339,14 @@ html, body {
     overflow: hidden;
 }
 
-/* CRITICAL FIX: Canvas never clears on keyboard */
+/* FIX 1 & 2: High quality, full canvas */
 #gameCanvas {
     background: white;
     box-shadow: 0 4px 15px rgba(0,0,0,0.2);
     cursor: crosshair;
     touch-action: none;
-    width: 100%;
-    height: 100%;
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-    transform: none !important;
+    /* Canvas is sized by JS to fill wrapper */
+    display: block;
 }
 
 /* Drawer Badge */
@@ -459,7 +458,7 @@ html, body {
 }
 
 /* ==========================================
-   TOOLBAR CONTAINER - MIDDLE POSITION
+   TOOLBAR CONTAINER
    ========================================== */
 .toolbar-container {
     display: none;
@@ -639,7 +638,7 @@ html, body {
 }
 
 /* ==========================================
-   BOTTOM SECTION - 55% HEIGHT
+   BOTTOM SECTION - FIX 5: Always visible chat
    ========================================== */
 .bottom-section {
     height: 55%;
@@ -650,6 +649,7 @@ html, body {
     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     flex-shrink: 0;
     min-height: 0;
+    position: relative;
 }
 
 /* Players Panel (Left 50%) */
@@ -668,6 +668,8 @@ html, body {
     flex-direction: column;
     background: white;
     min-height: 0;
+    /* FIX 5: Ensure chat panel doesn't get pushed down */
+    position: relative;
 }
 
 .panel-header {
@@ -810,7 +812,7 @@ html, body {
 }
 
 /* ==========================================
-   CHAT INPUT - FIXED TO ALWAYS SHOW
+   CHAT INPUT - FIX 5: Always visible, never moves
    ========================================== */
 .chat-input-area {
     padding: 8px;
@@ -821,7 +823,8 @@ html, body {
     flex-shrink: 0;
     height: 50px;
     min-height: 50px;
-    position: relative;
+    position: sticky;
+    bottom: 0;
     z-index: 10;
 }
 
@@ -956,7 +959,7 @@ html, body {
 }
 
 /* ==========================================
-   GAME OVER - WINNER DISPLAY
+   GAME OVER
    ========================================== */
 .game-over-modal {
     display: none;
@@ -999,7 +1002,6 @@ html, body {
     color: var(--dark);
 }
 
-/* WINNER DISPLAY */
 .winner-display {
     background: linear-gradient(135deg, var(--accent) 0%, #e67e22 100%);
     color: white;
@@ -1198,6 +1200,10 @@ html, body {
     .word-display {
         font-size: 16px;
         letter-spacing: 4px;
+    }
+    
+    .word-display.revealed {
+        letter-spacing: 3px;
     }
     
     .player-item {
