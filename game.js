@@ -1,5 +1,5 @@
 // ==========================================
-// GAME ENGINE - ALL BUGS FIXED INCLUDING DRAWER SELECTION
+// GAME ENGINE - DRAWER CAN DRAW FIX
 // ==========================================
 
 let gameState = {
@@ -255,7 +255,7 @@ function closePopups() {
 }
 
 // ==========================================
-// DRAWING FUNCTIONS
+// DRAWING FUNCTIONS - FIXED: Check game.state directly
 // ==========================================
 
 function getPos(e) {
@@ -282,8 +282,17 @@ function getPos(e) {
 let lastPoint = null;
 let currentStroke = null;
 
+// CRITICAL FIX: Check game.state directly instead of isGameActive flag
+function canDraw() {
+    return gameState.isDrawer && gameState.game && gameState.game.state === 'drawing';
+}
+
 function startDraw(e) {
-    if (!gameState.isDrawer || !gameState.isGameActive) return;
+    // CRITICAL FIX: Use canDraw() instead of isGameActive
+    if (!canDraw()) {
+        console.log('Cannot draw:', { isDrawer: gameState.isDrawer, state: gameState.game?.state });
+        return;
+    }
     e.preventDefault();
     
     const pos = getPos(e);
@@ -315,6 +324,10 @@ function startDraw(e) {
         startTime: Date.now()
     };
     
+    // Draw the first point immediately
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    
     sendDrawData('start', { 
         x: pos.x, 
         y: pos.y, 
@@ -323,10 +336,12 @@ function startDraw(e) {
         strokeId: currentStroke.id,
         timestamp: Date.now()
     });
+    
+    console.log('✏️ Started drawing at:', pos.x, pos.y);
 }
 
 function draw(e) {
-    if (!isDrawing || !gameState.isDrawer) return;
+    if (!isDrawing || !canDraw()) return;
     e.preventDefault();
     
     const pos = getPos(e);
@@ -337,13 +352,10 @@ function draw(e) {
     }
     
     if (lastPoint) {
-        const midX = (lastPoint.x + pos.x) / 2;
-        const midY = (lastPoint.y + pos.y) / 2;
-        
-        ctx.quadraticCurveTo(lastPoint.x, lastPoint.y, midX, midY);
-        ctx.stroke();
         ctx.beginPath();
-        ctx.moveTo(midX, midY);
+        ctx.moveTo(lastPoint.x, lastPoint.y);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
         
         if (currentStroke) {
             currentStroke.points.push({ x: pos.x, y: pos.y, t: Date.now() });
@@ -369,6 +381,7 @@ function endDraw(e) {
     if (currentStroke) {
         drawingHistory.push(currentStroke);
         sendDrawData('end', { strokeId: currentStroke.id });
+        console.log('✏️ Ended drawing, points:', currentStroke.points.length);
         currentStroke = null;
     }
     
@@ -456,7 +469,7 @@ function hexToRgb(hex) {
 }
 
 function undo() {
-    if (!gameState.isDrawer || drawingHistory.length === 0) return;
+    if (!canDraw() || drawingHistory.length === 0) return;
     drawingHistory.pop();
     redraw();
     sendDrawData('undo');
@@ -477,10 +490,8 @@ function redraw() {
         
         ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
         
-        for (let i = 1; i < stroke.points.length - 1; i++) {
-            const midX = (stroke.points[i].x + stroke.points[i + 1].x) / 2;
-            const midY = (stroke.points[i].y + stroke.points[i + 1].y) / 2;
-            ctx.quadraticCurveTo(stroke.points[i].x, stroke.points[i].y, midX, midY);
+        for (let i = 1; i < stroke.points.length; i++) {
+            ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
         }
         
         ctx.stroke();
@@ -503,26 +514,14 @@ function sendDrawData(type, data) {
     
     if (data) Object.assign(payload, data);
     
-    if (type === 'start' || type === 'clear') {
-        const priorityRef = drawingRef.child('stroke_' + Date.now());
-        priorityRef.set(payload);
-    } else {
-        drawingRef.push(payload);
-    }
+    drawingRef.push(payload);
 }
 
 function listenDrawing() {
-    drawingRef.on('value', (snap) => {
+    drawingRef.on('child_added', (snap) => {
         const data = snap.val();
-        if (!data) return;
-        
-        const strokes = Object.entries(data)
-            .filter(([key, val]) => val && val.player !== gameState.playerId)
-            .sort((a, b) => (a[1].localTime || 0) - (b[1].localTime || 0));
-        
-        strokes.forEach(([key, val]) => {
-            handleRemoteDraw(val);
-        });
+        if (!data || data.player === gameState.playerId) return;
+        handleRemoteDraw(data);
     });
 }
 
@@ -552,6 +551,8 @@ function handleRemoteDraw(data) {
             ctx.lineJoin = 'round';
             ctx.lineWidth = data.size;
             ctx.strokeStyle = data.color;
+            ctx.lineTo(data.x, data.y);
+            ctx.stroke();
             break;
             
         case 'draw':
@@ -570,13 +571,10 @@ function handleRemoteDraw(data) {
                 ctx.strokeStyle = '#000000';
             }
             
-            const midX = (remoteStroke.lastX + data.x) / 2;
-            const midY = (remoteStroke.lastY + data.y) / 2;
-            
-            ctx.quadraticCurveTo(remoteStroke.lastX, remoteStroke.lastY, midX, midY);
-            ctx.stroke();
             ctx.beginPath();
-            ctx.moveTo(midX, midY);
+            ctx.moveTo(remoteStroke.lastX, remoteStroke.lastY);
+            ctx.lineTo(data.x, data.y);
+            ctx.stroke();
             
             remoteStroke.lastX = data.x;
             remoteStroke.lastY = data.y;
@@ -598,7 +596,7 @@ function handleRemoteDraw(data) {
 }
 
 // ==========================================
-// GAME LOGIC - FIXED DRAWER SELECTION
+// GAME LOGIC
 // ==========================================
 
 function joinGame() {
@@ -704,9 +702,6 @@ function addPlayer(existingRoomData = null) {
     });
 }
 
-// ==========================================
-// CRITICAL FIX: Setup Listeners - Fixed drawer selection
-// ==========================================
 function setupListeners() {
     playersRef.on('value', (snap) => {
         const previousPlayers = { ...gameState.players };
@@ -749,8 +744,6 @@ function setupListeners() {
         
         gameState.lastPlayerCount = currentIds.length;
         
-        // CRITICAL FIX: Check if we need to start game
-        // Only the first player (creator) should trigger game start
         const playerIds = Object.keys(gameState.players);
         const isFirstPlayer = playerIds.length > 0 && playerIds[0] === gameState.playerId;
         
@@ -770,7 +763,6 @@ function setupListeners() {
         }
     });
     
-    // CRITICAL FIX: Listen to game state changes properly
     gameRef.on('value', (snap) => {
         const game = snap.val();
         if (game) {
@@ -808,7 +800,6 @@ function handleDrawerLeft() {
     });
 }
 
-// CRITICAL FIX: Properly start the game with first drawer
 function checkStartGame() {
     if (gameState.gameStarted) return;
     
@@ -821,7 +812,6 @@ function checkStartGame() {
         
         console.log('🎮 Starting game! First drawer:', firstPlayer);
         
-        // CRITICAL: Set game to choosing state with first drawer
         gameRef.update({
             state: 'choosing',
             playerList: playerIds,
@@ -863,10 +853,9 @@ function shouldShowMessage(msg) {
 }
 
 // ==========================================
-// CRITICAL FIX: handleGameChange - Proper state handling
+// CRITICAL FIX: handleGameChange - Fixed isGameActive logic
 // ==========================================
 function handleGameChange(game) {
-    // Validate round number
     if (game.round < gameState.round && gameState.round > 1) {
         console.warn('Invalid round transition prevented:', gameState.round, '->', game.round);
         return;
@@ -894,14 +883,15 @@ function handleGameChange(game) {
     gameState.isDrawer = game.drawer === gameState.playerId;
     gameState.currentWord = game.word;
     
-    // Update word display
+    // CRITICAL FIX: Set isGameActive based on state
+    gameState.isGameActive = (game.state === 'drawing');
+    
     updateWordDisplay(game.word, gameState.hasGuessedWord);
     
     const waitingOverlay = document.getElementById('waitingOverlay');
     const roundOverlay = document.getElementById('roundOverlay');
     const wordModal = document.getElementById('wordModal');
     
-    // Check for meaningful state changes
     const stateChanged = game.state !== previousState;
     const drawerChanged = game.drawer !== previousDrawer;
     const roundChanged = game.round !== previousRound;
@@ -910,18 +900,16 @@ function handleGameChange(game) {
         return;
     }
     
-    // Reset hasGuessedWord on new round
     if (roundChanged) {
         gameState.hasGuessedWord = false;
     }
     
-    console.log('🔄 Game state:', game.state, '| Drawer:', game.drawer, '| Me:', gameState.playerId, '| isDrawer:', gameState.isDrawer);
+    console.log('🔄 Game state:', game.state, '| Drawer:', game.drawer, '| Me:', gameState.playerId, '| isDrawer:', gameState.isDrawer, '| isGameActive:', gameState.isGameActive);
     
     switch(game.state) {
         case 'waiting':
             waitingOverlay.classList.remove('show');
             roundOverlay.classList.remove('show');
-            gameState.isGameActive = false;
             break;
             
         case 'choosing':
@@ -936,17 +924,14 @@ function handleGameChange(game) {
                 wordModal.classList.remove('show');
             }
             roundOverlay.classList.remove('show');
-            gameState.isGameActive = false;
             break;
             
         case 'drawing':
             waitingOverlay.classList.remove('show');
             roundOverlay.classList.remove('show');
             wordModal.classList.remove('show');
-            gameState.isGameActive = true;
             
-            // Reset hasGuessed for all non-drawers when entering drawing state
-            if (previousState === 'choosing' || game.timer === 80) {
+            if (previousState === 'choosing' || previousState === 'round_end' || game.timer === 80) {
                 if (!gameState.isDrawer) {
                     playersRef.child(gameState.playerId).update({ hasGuessed: false });
                     gameState.hasGuessedWord = false;
@@ -956,7 +941,6 @@ function handleGameChange(game) {
                 }
             }
             
-            // Start timer only if drawer and not already running
             if (gameState.isDrawer && !timerInterval) {
                 startTimer();
             }
@@ -965,18 +949,15 @@ function handleGameChange(game) {
         case 'round_end':
             waitingOverlay.classList.remove('show');
             showRoundEnd(game.word);
-            gameState.isGameActive = false;
             break;
             
         case 'game_over':
             waitingOverlay.classList.remove('show');
             roundOverlay.classList.remove('show');
             showGameOver();
-            gameState.isGameActive = false;
             break;
     }
     
-    // Handle drawer change
     if (gameState.isDrawer !== wasDrawer) {
         if (gameState.isDrawer) {
             becomeDrawer();
@@ -1444,4 +1425,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v12.0 - DRAWER SELECTION FIXED!');
+console.log('🎮 Game engine v13.0 - DRAWER CAN DRAW!');
