@@ -1,5 +1,5 @@
 // ==========================================
-// GAME ENGINE - DRAWER CAN DRAW FIX
+// GAME ENGINE - DRAWER CAN ACTUALLY DRAW FIX
 // ==========================================
 
 let gameState = {
@@ -24,7 +24,9 @@ let gameState = {
     lastState: null,
     lastDrawer: null,
     lastRound: null,
-    hasGuessedWord: false
+    hasGuessedWord: false,
+    // NEW: Track current game state directly
+    currentState: 'waiting'
 };
 
 let canvas, ctx;
@@ -255,7 +257,7 @@ function closePopups() {
 }
 
 // ==========================================
-// DRAWING FUNCTIONS - FIXED: Check game.state directly
+// DRAWING FUNCTIONS - CRITICAL FIX: Always allow when isDrawer
 // ==========================================
 
 function getPos(e) {
@@ -282,22 +284,31 @@ function getPos(e) {
 let lastPoint = null;
 let currentStroke = null;
 
-// CRITICAL FIX: Check game.state directly instead of isGameActive flag
+// CRITICAL FIX: Check isDrawer and currentState directly
 function canDraw() {
-    return gameState.isDrawer && gameState.game && gameState.game.state === 'drawing';
+    const can = gameState.isDrawer && gameState.currentState === 'drawing';
+    console.log('canDraw check:', { isDrawer: gameState.isDrawer, currentState: gameState.currentState, result: can });
+    return can;
 }
 
 function startDraw(e) {
-    // CRITICAL FIX: Use canDraw() instead of isGameActive
+    console.log('startDraw called, canDraw:', canDraw(), 'isDrawer:', gameState.isDrawer, 'state:', gameState.currentState);
+    
     if (!canDraw()) {
-        console.log('Cannot draw:', { isDrawer: gameState.isDrawer, state: gameState.game?.state });
+        console.log('Cannot draw - blocked');
         return;
     }
+    
     e.preventDefault();
+    e.stopPropagation();
     
     const pos = getPos(e);
+    console.log('Drawing at position:', pos);
     
-    if (pos.x < 0 || pos.x > canvas.width || pos.y < 0 || pos.y > canvas.height) return;
+    if (pos.x < 0 || pos.x > canvas.width || pos.y < 0 || pos.y > canvas.height) {
+        console.log('Position out of bounds');
+        return;
+    }
     
     if (currentTool === 'bucket') {
         floodFill(Math.floor(pos.x), Math.floor(pos.y), currentColor);
@@ -308,25 +319,26 @@ function startDraw(e) {
     isDrawing = true;
     lastPoint = pos;
     
-    ctx.beginPath();
-    ctx.moveTo(pos.x, pos.y);
-    
+    // CRITICAL: Set canvas context properties
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.lineWidth = currentSize;
     ctx.strokeStyle = currentTool === 'eraser' ? '#ffffff' : currentColor;
     
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    
     currentStroke = {
         id: Date.now() + Math.random(),
         color: ctx.strokeStyle,
         size: currentSize,
-        points: [{ x: pos.x, y: pos.y, t: Date.now() }],
+        points: [{ x: pos.x, y: pos.y }],
         startTime: Date.now()
     };
     
-    // Draw the first point immediately
-    ctx.lineTo(pos.x, pos.y);
-    ctx.stroke();
+    console.log('✅ Started drawing stroke:', currentStroke.id);
     
     sendDrawData('start', { 
         x: pos.x, 
@@ -336,13 +348,19 @@ function startDraw(e) {
         strokeId: currentStroke.id,
         timestamp: Date.now()
     });
-    
-    console.log('✏️ Started drawing at:', pos.x, pos.y);
 }
 
 function draw(e) {
-    if (!isDrawing || !canDraw()) return;
+    if (!isDrawing) return;
+    
+    if (!canDraw()) {
+        console.log('Draw blocked - stopping');
+        endDraw();
+        return;
+    }
+    
     e.preventDefault();
+    e.stopPropagation();
     
     const pos = getPos(e);
     
@@ -358,7 +376,7 @@ function draw(e) {
         ctx.stroke();
         
         if (currentStroke) {
-            currentStroke.points.push({ x: pos.x, y: pos.y, t: Date.now() });
+            currentStroke.points.push({ x: pos.x, y: pos.y });
         }
         
         sendDrawData('draw', { 
@@ -376,22 +394,28 @@ function draw(e) {
 
 function endDraw(e) {
     if (!isDrawing) return;
+    
+    console.log('End drawing');
     isDrawing = false;
     
     if (currentStroke) {
         drawingHistory.push(currentStroke);
         sendDrawData('end', { strokeId: currentStroke.id });
-        console.log('✏️ Ended drawing, points:', currentStroke.points.length);
+        console.log('Saved stroke with', currentStroke.points.length, 'points');
         currentStroke = null;
     }
     
     lastPoint = null;
-    ctx.beginPath();
 }
 
 function handleTouchStart(e) {
     e.preventDefault();
     const touch = e.touches[0];
+    
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
     const mouseEvent = new MouseEvent('mousedown', {
         clientX: touch.clientX,
         clientY: touch.clientY,
@@ -403,6 +427,7 @@ function handleTouchStart(e) {
 function handleTouchMove(e) {
     e.preventDefault();
     const touch = e.touches[0];
+    
     const mouseEvent = new MouseEvent('mousemove', {
         clientX: touch.clientX,
         clientY: touch.clientY,
@@ -545,12 +570,12 @@ function handleRemoteDraw(data) {
                 lastY: data.y,
                 strokeId: data.strokeId
             };
-            ctx.beginPath();
-            ctx.moveTo(data.x, data.y);
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
             ctx.lineWidth = data.size;
             ctx.strokeStyle = data.color;
+            ctx.beginPath();
+            ctx.moveTo(data.x, data.y);
             ctx.lineTo(data.x, data.y);
             ctx.stroke();
             break;
@@ -563,12 +588,12 @@ function handleRemoteDraw(data) {
                     color: '#000000',
                     size: 4
                 };
-                ctx.beginPath();
-                ctx.moveTo(data.lx, data.ly);
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
                 ctx.lineWidth = 4;
                 ctx.strokeStyle = '#000000';
+                ctx.beginPath();
+                ctx.moveTo(data.lx, data.ly);
             }
             
             ctx.beginPath();
@@ -582,7 +607,6 @@ function handleRemoteDraw(data) {
             
         case 'end':
             remoteStroke = null;
-            ctx.beginPath();
             break;
             
         case 'fill':
@@ -668,6 +692,11 @@ function joinRoom(code) {
         chatRef = roomRef.child('chat');
         drawingRef = roomRef.child('drawing');
         gameRef = roomRef.child('game');
+        
+        // Set initial state from existing room
+        if (roomData.game) {
+            gameState.currentState = roomData.game.state || 'waiting';
+        }
         
         addPlayer(roomData);
     }, (err) => {
@@ -853,7 +882,7 @@ function shouldShowMessage(msg) {
 }
 
 // ==========================================
-// CRITICAL FIX: handleGameChange - Fixed isGameActive logic
+// CRITICAL FIX: handleGameChange - Update currentState properly
 // ==========================================
 function handleGameChange(game) {
     if (game.round < gameState.round && gameState.round > 1) {
@@ -865,16 +894,18 @@ function handleGameChange(game) {
     const previousDrawer = gameState.lastDrawer;
     const previousRound = gameState.lastRound;
     
+    // CRITICAL: Update currentState immediately
+    gameState.currentState = game.state;
+    gameState.lastState = game.state;
+    gameState.lastDrawer = game.drawer;
+    gameState.lastRound = game.round;
+    
     gameState.game = game;
     gameState.round = game.round || 1;
     gameState.maxRounds = game.maxRounds || 10;
     gameState.allGuessed = game.allGuessed || false;
     gameState.playerList = game.playerList || Object.keys(gameState.players);
     gameState.currentDrawerIndex = game.currentDrawerIndex || 0;
-    
-    gameState.lastState = game.state;
-    gameState.lastDrawer = game.drawer;
-    gameState.lastRound = game.round;
     
     document.getElementById('roundInfo').textContent = `Round ${gameState.round} of ${gameState.maxRounds}`;
     document.getElementById('timerDisplay').textContent = game.timer || 80;
@@ -883,7 +914,6 @@ function handleGameChange(game) {
     gameState.isDrawer = game.drawer === gameState.playerId;
     gameState.currentWord = game.word;
     
-    // CRITICAL FIX: Set isGameActive based on state
     gameState.isGameActive = (game.state === 'drawing');
     
     updateWordDisplay(game.word, gameState.hasGuessedWord);
@@ -904,7 +934,7 @@ function handleGameChange(game) {
         gameState.hasGuessedWord = false;
     }
     
-    console.log('🔄 Game state:', game.state, '| Drawer:', game.drawer, '| Me:', gameState.playerId, '| isDrawer:', gameState.isDrawer, '| isGameActive:', gameState.isGameActive);
+    console.log('🔄 State update:', game.state, '| Drawer:', game.drawer === gameState.playerId, '| canDraw:', canDraw());
     
     switch(game.state) {
         case 'waiting':
@@ -990,7 +1020,7 @@ function becomeDrawer() {
     document.getElementById('drawerBadge').classList.add('show');
     document.getElementById('toolbarContainer').classList.add('show');
     
-    if (gameState.game?.state === 'choosing') {
+    if (gameState.currentState === 'choosing') {
         setTimeout(() => showWordSelect(), 200);
     }
 }
@@ -1425,4 +1455,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v13.0 - DRAWER CAN DRAW!');
+console.log('🎮 Game engine v14.0 - YOU CAN DRAW NOW!');
