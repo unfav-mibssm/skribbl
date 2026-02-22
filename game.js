@@ -1,5 +1,5 @@
 // ==========================================
-// GAME ENGINE - CANVAS VISIBLE AND WORKING
+// GAME ENGINE - FIXED CANVAS DRAWING
 // ==========================================
 
 let gameState = {
@@ -61,8 +61,7 @@ const brushSizes = [
 // ==========================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize canvas immediately
-    initCanvas();
+    // Don't init canvas yet - wait until game screen is visible
     initColorPicker();
     initSizePicker();
     initToolbar();
@@ -98,7 +97,7 @@ function playSound(soundName) {
 }
 
 // ==========================================
-// CANVAS - FORCE WHITE AND VISIBLE
+// CANVAS - FIXED: Proper sizing and coordinates
 // ==========================================
 
 function initCanvas() {
@@ -108,13 +107,7 @@ function initCanvas() {
         return;
     }
     
-    // FORCE canvas to be visible and white
-    canvas.style.backgroundColor = '#ffffff';
-    canvas.style.display = 'block';
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
-    
-    // Get wrapper size
+    // Get wrapper size FIRST
     const wrapper = document.querySelector('.canvas-wrapper');
     let width = 800;
     let height = 600;
@@ -123,22 +116,41 @@ function initCanvas() {
         const rect = wrapper.getBoundingClientRect();
         width = Math.floor(rect.width);
         height = Math.floor(rect.height);
+        console.log('Wrapper size:', width, 'x', height);
     }
     
-    // Set canvas size
+    // Set internal canvas resolution to match display size exactly
     canvas.width = width;
     canvas.height = height;
+    
+    // Remove any CSS sizing that could cause distortion
+    // Let canvas naturally fill wrapper via CSS display:block
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+    canvas.style.backgroundColor = '#ffffff';
+    canvas.style.display = 'block';
+    canvas.style.cursor = 'crosshair';
+    canvas.style.touchAction = 'none';
     
     // Get context
     ctx = canvas.getContext('2d');
     
-    // FORCE white background
+    // White background
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     // Set default properties
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    
+    // Remove old listeners to prevent duplicates
+    canvas.removeEventListener('mousedown', handleMouseDown);
+    canvas.removeEventListener('mousemove', handleMouseMove);
+    canvas.removeEventListener('mouseup', handleMouseUp);
+    canvas.removeEventListener('mouseleave', handleMouseUp);
+    canvas.removeEventListener('touchstart', handleTouchStart);
+    canvas.removeEventListener('touchmove', handleTouchMove);
+    canvas.removeEventListener('touchend', handleMouseUp);
     
     // Add event listeners
     canvas.addEventListener('mousedown', handleMouseDown);
@@ -150,21 +162,67 @@ function initCanvas() {
     canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
     canvas.addEventListener('touchend', handleMouseUp);
     
-    console.log('Canvas initialized:', width, 'x', height);
+    console.log('Canvas initialized:', canvas.width, 'x', canvas.height);
+    
+    // Handle window resize
+    window.addEventListener('resize', handleCanvasResize);
+}
+
+function handleCanvasResize() {
+    // Save current content
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = canvas.width;
+    tempCanvas.height = canvas.height;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(canvas, 0, 0);
+    
+    // Resize
+    const wrapper = document.querySelector('.canvas-wrapper');
+    if (wrapper) {
+        const rect = wrapper.getBoundingClientRect();
+        canvas.width = Math.floor(rect.width);
+        canvas.height = Math.floor(rect.height);
+        canvas.style.width = canvas.width + 'px';
+        canvas.style.height = canvas.height + 'px';
+        
+        // Restore content (scaled)
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height);
+        
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        console.log('Canvas resized to:', canvas.width, 'x', canvas.height);
+    }
 }
 
 // ==========================================
-// DRAWING - SIMPLE AND RELIABLE
+// DRAWING - FIXED: Accurate coordinate calculation
 // ==========================================
 
 function getPos(e) {
     const rect = canvas.getBoundingClientRect();
-    const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
-    const clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    
+    let clientX, clientY;
+    
+    if (e.touches && e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+    } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+    }
+    
+    // Calculate position accounting for any CSS scaling
+    const x = (clientX - rect.left) * scaleX;
+    const y = (clientY - rect.top) * scaleY;
     
     return {
-        x: clientX - rect.left,
-        y: clientY - rect.top
+        x: Math.round(x),
+        y: Math.round(y)
     };
 }
 
@@ -184,11 +242,14 @@ function handleMouseDown(e) {
     }
     
     e.preventDefault();
+    e.stopPropagation();
     
     const pos = getPos(e);
     lastX = pos.x;
     lastY = pos.y;
     isDrawing = true;
+    
+    console.log('MouseDown at:', lastX, lastY);
     
     // Bucket tool
     if (currentTool === 'bucket') {
@@ -235,18 +296,21 @@ function handleMouseDown(e) {
         color: ctx.strokeStyle, 
         size: currentSize
     });
-    
-    console.log('Started drawing at', lastX, lastY);
 }
 
 function handleMouseMove(e) {
     if (!isDrawing || !canDraw()) return;
     
     e.preventDefault();
+    e.stopPropagation();
     
     const pos = getPos(e);
     const x = pos.x;
     const y = pos.y;
+    
+    // Only draw if we've moved enough (prevent duplicate points)
+    const dist = Math.hypot(x - lastX, y - lastY);
+    if (dist < 1) return;
     
     // Draw line from last point to current
     ctx.beginPath();
@@ -287,24 +351,14 @@ function handleMouseUp(e) {
 function handleTouchStart(e) {
     e.preventDefault();
     if (e.touches.length > 0) {
-        const touch = e.touches[0];
-        const mouseEvent = {
-            clientX: touch.clientX,
-            clientY: touch.clientY
-        };
-        handleMouseDown(mouseEvent);
+        handleMouseDown(e);
     }
 }
 
 function handleTouchMove(e) {
     e.preventDefault();
     if (e.touches.length > 0) {
-        const touch = e.touches[0];
-        const mouseEvent = {
-            clientX: touch.clientX,
-            clientY: touch.clientY
-        };
-        handleMouseMove(mouseEvent);
+        handleMouseMove(e);
     }
 }
 
@@ -417,7 +471,6 @@ function initToolbar() {
     if (brushBtn) brushBtn.onclick = () => { currentTool = 'brush'; updateTools(); };
     if (eraserBtn) eraserBtn.onclick = () => { currentTool = 'eraser'; updateTools(); };
     
-    // Bucket - no toast notification
     if (bucketBtn) bucketBtn.onclick = () => { 
         currentTool = 'bucket'; 
         updateTools(); 
@@ -1148,6 +1201,11 @@ function showGame(code) {
     if (gameScreen) gameScreen.style.display = 'flex';
     if (roomCodeDisplay) roomCodeDisplay.textContent = code;
     
+    // FIXED: Initialize canvas AFTER game screen is visible
+    setTimeout(() => {
+        initCanvas();
+    }, 100);
+    
     playSound('enter');
     sendChat('system', `${gameState.playerName} joined!`);
 }
@@ -1212,4 +1270,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v18.0 - CANVAS WHITE AND DRAWING WORKS!');
+console.log('🎮 Game engine v19.0 - CANVAS DRAWING FIXED!');
