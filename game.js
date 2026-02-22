@@ -1,5 +1,5 @@
 // ==========================================
-// GAME ENGINE - DRAWING WORKS + ALL FIXES
+// GAME ENGINE - CANVAS VISIBLE AND WORKING
 // ==========================================
 
 let gameState = {
@@ -61,17 +61,24 @@ const brushSizes = [
 // ==========================================
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize canvas immediately
     initCanvas();
     initColorPicker();
     initSizePicker();
     initToolbar();
     initSounds();
     
-    document.getElementById('chatInput').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') sendMessage();
-    });
+    const chatInput = document.getElementById('chatInput');
+    if (chatInput) {
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+    }
     
-    document.getElementById('popupOverlay').addEventListener('click', closePopups);
+    const popupOverlay = document.getElementById('popupOverlay');
+    if (popupOverlay) {
+        popupOverlay.addEventListener('click', closePopups);
+    }
 });
 
 function initSounds() {
@@ -91,45 +98,63 @@ function playSound(soundName) {
 }
 
 // ==========================================
-// CANVAS - WORKING VERSION (SIMPLE)
+// CANVAS - FORCE WHITE AND VISIBLE
 // ==========================================
 
 function initCanvas() {
     canvas = document.getElementById('gameCanvas');
-    if (!canvas) return;
-    
-    // SIMPLE: Set canvas size to match wrapper
-    const wrapper = document.querySelector('.canvas-wrapper');
-    if (wrapper) {
-        const rect = wrapper.getBoundingClientRect();
-        canvas.width = Math.floor(rect.width);
-        canvas.height = Math.floor(rect.height);
-    } else {
-        canvas.width = 800;
-        canvas.height = 600;
+    if (!canvas) {
+        console.error('CANVAS NOT FOUND!');
+        return;
     }
     
-    ctx = canvas.getContext('2d', { willReadFrequently: true });
+    // FORCE canvas to be visible and white
+    canvas.style.backgroundColor = '#ffffff';
+    canvas.style.display = 'block';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
     
-    // White background
+    // Get wrapper size
+    const wrapper = document.querySelector('.canvas-wrapper');
+    let width = 800;
+    let height = 600;
+    
+    if (wrapper) {
+        const rect = wrapper.getBoundingClientRect();
+        width = Math.floor(rect.width);
+        height = Math.floor(rect.height);
+    }
+    
+    // Set canvas size
+    canvas.width = width;
+    canvas.height = height;
+    
+    // Get context
+    ctx = canvas.getContext('2d');
+    
+    // FORCE white background
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Events
-    canvas.addEventListener('mousedown', handleMouseDown, true);
-    canvas.addEventListener('mousemove', handleMouseMove, true);
-    canvas.addEventListener('mouseup', handleMouseUp, true);
-    canvas.addEventListener('mouseleave', handleMouseUp, true);
+    // Set default properties
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     
-    canvas.addEventListener('touchstart', handleTouchStart, { passive: false, capture: true });
-    canvas.addEventListener('touchmove', handleTouchMove, { passive: false, capture: true });
-    canvas.addEventListener('touchend', handleMouseUp, { passive: false, capture: true });
+    // Add event listeners
+    canvas.addEventListener('mousedown', handleMouseDown);
+    canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('mouseup', handleMouseUp);
+    canvas.addEventListener('mouseleave', handleMouseUp);
     
-    console.log('Canvas ready:', canvas.width, 'x', canvas.height);
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleMouseUp);
+    
+    console.log('Canvas initialized:', width, 'x', height);
 }
 
 // ==========================================
-// DRAWING - SIMPLE AND WORKING
+// DRAWING - SIMPLE AND RELIABLE
 // ==========================================
 
 function getPos(e) {
@@ -143,33 +168,35 @@ function getPos(e) {
     };
 }
 
-let lastX = 0, lastY = 0;
+let lastX = 0;
+let lastY = 0;
 let currentStroke = null;
 
 function canDraw() {
-    return gameState.isDrawer && gameState.currentState === 'drawing';
+    const result = gameState.isDrawer && gameState.currentState === 'drawing';
+    return result;
 }
 
 function handleMouseDown(e) {
-    if (!canDraw()) return;
+    if (!canDraw()) {
+        console.log('Cannot draw - isDrawer:', gameState.isDrawer, 'state:', gameState.currentState);
+        return;
+    }
     
     e.preventDefault();
-    e.stopPropagation();
     
     const pos = getPos(e);
     lastX = pos.x;
     lastY = pos.y;
     isDrawing = true;
     
-    // FIX 3: Bucket tool
+    // Bucket tool
     if (currentTool === 'bucket') {
-        // Simple bucket - just fill a circle area
         ctx.beginPath();
         ctx.arc(lastX, lastY, 30, 0, 2 * Math.PI);
         ctx.fillStyle = currentColor;
         ctx.fill();
         
-        // Save to history
         drawingHistory.push({
             type: 'fill',
             x: lastX,
@@ -183,19 +210,17 @@ function handleMouseDown(e) {
         return;
     }
     
-    // Set properties
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    // Set drawing properties
     ctx.lineWidth = currentSize;
     ctx.strokeStyle = (currentTool === 'eraser') ? '#ffffff' : currentColor;
     
-    // Draw dot
+    // Draw single dot
     ctx.beginPath();
     ctx.moveTo(lastX, lastY);
     ctx.lineTo(lastX, lastY);
     ctx.stroke();
     
-    // Start stroke for history
+    // Start recording stroke
     currentStroke = {
         type: 'stroke',
         color: ctx.strokeStyle,
@@ -203,6 +228,7 @@ function handleMouseDown(e) {
         points: [{x: lastX, y: lastY}]
     };
     
+    // Send to Firebase
     sendDrawData('start', { 
         x: lastX, 
         y: lastY, 
@@ -210,30 +236,30 @@ function handleMouseDown(e) {
         size: currentSize
     });
     
-    console.log('Drawing at:', lastX, lastY);
+    console.log('Started drawing at', lastX, lastY);
 }
 
 function handleMouseMove(e) {
     if (!isDrawing || !canDraw()) return;
     
     e.preventDefault();
-    e.stopPropagation();
     
     const pos = getPos(e);
     const x = pos.x;
     const y = pos.y;
     
-    // Draw line
+    // Draw line from last point to current
     ctx.beginPath();
     ctx.moveTo(lastX, lastY);
     ctx.lineTo(x, y);
     ctx.stroke();
     
-    // Add to current stroke
+    // Record point
     if (currentStroke) {
         currentStroke.points.push({x, y});
     }
     
+    // Send to others
     sendDrawData('draw', { x, y, lx: lastX, ly: lastY });
     
     lastX = x;
@@ -242,12 +268,12 @@ function handleMouseMove(e) {
 
 function handleMouseUp(e) {
     if (!isDrawing) return;
+    
     isDrawing = false;
     
     // Save stroke to history
     if (currentStroke && currentStroke.points.length > 1) {
         drawingHistory.push(currentStroke);
-        // Keep only last 50 strokes
         if (drawingHistory.length > 50) {
             drawingHistory.shift();
         }
@@ -255,48 +281,44 @@ function handleMouseUp(e) {
     currentStroke = null;
     
     sendDrawData('end');
-    console.log('Drawing ended');
+    console.log('Stopped drawing');
 }
 
 function handleTouchStart(e) {
     e.preventDefault();
-    const touch = e.touches[0];
-    const mouseEvent = {
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        preventDefault: () => {},
-        stopPropagation: () => {}
-    };
-    handleMouseDown(mouseEvent);
+    if (e.touches.length > 0) {
+        const touch = e.touches[0];
+        const mouseEvent = {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+        };
+        handleMouseDown(mouseEvent);
+    }
 }
 
 function handleTouchMove(e) {
     e.preventDefault();
-    const touch = e.touches[0];
-    const mouseEvent = {
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        preventDefault: () => {},
-        stopPropagation: () => {}
-    };
-    handleMouseMove(mouseEvent);
+    if (e.touches.length > 0) {
+        const touch = e.touches[0];
+        const mouseEvent = {
+            clientX: touch.clientX,
+            clientY: touch.clientY
+        };
+        handleMouseMove(mouseEvent);
+    }
 }
 
-// FIX 3: Working undo
+// Undo function
 function undo() {
     if (!canDraw() || drawingHistory.length === 0) return;
     
-    // Remove last stroke
     drawingHistory.pop();
-    
-    // Redraw everything
     redraw();
-    
     sendDrawData('undo');
 }
 
 function redraw() {
-    // Clear
+    // Clear to white
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
@@ -340,6 +362,8 @@ function initColorPicker() {
     const preview = document.getElementById('colorPreview');
     if (!grid) return;
     
+    grid.innerHTML = '';
+    
     colors.forEach((color, i) => {
         const div = document.createElement('div');
         div.className = 'color-option' + (i === 0 ? ' selected' : '');
@@ -362,6 +386,8 @@ function initColorPicker() {
 function initSizePicker() {
     const container = document.getElementById('sizeOptions');
     if (!container) return;
+    
+    container.innerHTML = '';
     
     brushSizes.forEach((brush, i) => {
         const div = document.createElement('div');
@@ -391,14 +417,12 @@ function initToolbar() {
     if (brushBtn) brushBtn.onclick = () => { currentTool = 'brush'; updateTools(); };
     if (eraserBtn) eraserBtn.onclick = () => { currentTool = 'eraser'; updateTools(); };
     
-    // FIX 3: Bucket tool
+    // Bucket - no toast notification
     if (bucketBtn) bucketBtn.onclick = () => { 
         currentTool = 'bucket'; 
         updateTools(); 
-        showToast('Tap to fill area', 'info');
     };
     
-    // FIX 3: Undo button
     if (undoBtn) undoBtn.onclick = undo;
     
     if (clearBtn) clearBtn.onclick = () => {
@@ -453,7 +477,7 @@ function closePopups() {
 }
 
 // ==========================================
-// REMOTE DRAWING
+// FIREBASE SYNC
 // ==========================================
 
 function sendDrawData(type, data) {
@@ -496,8 +520,6 @@ function listenDrawing() {
             ctx.fill();
         } else if (data.type === 'clear') {
             clearCanvas();
-        } else if (data.type === 'undo') {
-            // Remote undo
         }
     });
 }
@@ -510,7 +532,7 @@ function joinGame() {
     const nameInput = document.getElementById('playerName');
     const codeInput = document.getElementById('roomCode');
     
-    const name = (nameInput ? nameInput.value.trim() : '') || 'Player' + Math.floor(Math.random() * 1000);
+    const name = (nameInput && nameInput.value.trim()) || 'Player' + Math.floor(Math.random() * 1000);
     const code = codeInput ? codeInput.value.trim().toUpperCase() : '';
     
     gameState.playerName = name;
@@ -697,17 +719,14 @@ function handleGameChange(game) {
     if (roundInfo) roundInfo.textContent = `Round ${gameState.round} of ${game.maxRounds || 10}`;
     if (timerDisplay) timerDisplay.textContent = game.timer || 80;
     
-    // FIX 4: Show revealed word properly
     if (wordDisplay) {
         if (!game.word) {
             wordDisplay.textContent = 'Waiting...';
             wordDisplay.classList.remove('revealed');
         } else if (gameState.isDrawer || gameState.hasGuessedWord) {
-            // Show actual letters with spaces between
             wordDisplay.textContent = game.word.toUpperCase().split('').join(' ');
             wordDisplay.classList.add('revealed');
         } else {
-            // Show underscores
             wordDisplay.textContent = game.word.split('').map(c => c === ' ' ? '   ' : '_').join(' ');
             wordDisplay.classList.remove('revealed');
         }
@@ -956,7 +975,6 @@ function handleCorrectGuess() {
     sendChat('correct', `guessed correctly! (+${points})`);
     playSound('correct');
     
-    // FIX 4: Update word display immediately
     const wordDisplay = document.getElementById('wordDisplay');
     if (wordDisplay && gameState.currentWord) {
         wordDisplay.textContent = gameState.currentWord.toUpperCase().split('').join(' ');
@@ -1194,4 +1212,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v17.0 - DRAWING WORKS + ALL FIXES!');
+console.log('🎮 Game engine v18.0 - CANVAS WHITE AND DRAWING WORKS!');
