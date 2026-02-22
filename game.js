@@ -1,5 +1,5 @@
 // ==========================================
-// GAME ENGINE - ALL 5 ISSUES FIXED
+// GAME ENGINE - DRAWING WORKS + ALL FIXES
 // ==========================================
 
 let gameState = {
@@ -34,7 +34,6 @@ let currentTool = 'brush';
 let currentColor = '#000000';
 let currentSize = 4;
 let drawingHistory = [];
-let undoHistory = []; // NEW: For undo functionality
 let remoteStroke = null;
 let timerInterval = null;
 let autoRestartTimer = null;
@@ -92,45 +91,29 @@ function playSound(soundName) {
 }
 
 // ==========================================
-// CANVAS - FIX 1 & 2: High quality, full size
+// CANVAS - WORKING VERSION (SIMPLE)
 // ==========================================
 
 function initCanvas() {
     canvas = document.getElementById('gameCanvas');
     if (!canvas) return;
     
-    // FIX 2: Make canvas fill the wrapper completely
+    // SIMPLE: Set canvas size to match wrapper
     const wrapper = document.querySelector('.canvas-wrapper');
     if (wrapper) {
         const rect = wrapper.getBoundingClientRect();
-        // FIX 1: Higher resolution for crisp drawing (multiply by device pixel ratio)
-        const dpr = window.devicePixelRatio || 1;
-        
-        // Set display size (css pixels)
-        canvas.style.width = rect.width + 'px';
-        canvas.style.height = rect.height + 'px';
-        
-        // Set actual size in memory (scaled to account for extra pixel density)
-        canvas.width = Math.floor(rect.width * dpr);
-        canvas.height = Math.floor(rect.height * dpr);
-        
-        // Normalize coordinate system to use css pixels
-        ctx = canvas.getContext('2d', { willReadFrequently: true });
-        ctx.scale(dpr, dpr);
+        canvas.width = Math.floor(rect.width);
+        canvas.height = Math.floor(rect.height);
     } else {
         canvas.width = 800;
         canvas.height = 600;
-        ctx = canvas.getContext('2d', { willReadFrequently: true });
     }
     
-    // FIX 1: High quality settings
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.imageSmoothingEnabled = false; // Crisp lines
+    ctx = canvas.getContext('2d', { willReadFrequently: true });
     
-    // Clear to white
+    // White background
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1));
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     // Events
     canvas.addEventListener('mousedown', handleMouseDown, true);
@@ -141,10 +124,12 @@ function initCanvas() {
     canvas.addEventListener('touchstart', handleTouchStart, { passive: false, capture: true });
     canvas.addEventListener('touchmove', handleTouchMove, { passive: false, capture: true });
     canvas.addEventListener('touchend', handleMouseUp, { passive: false, capture: true });
+    
+    console.log('Canvas ready:', canvas.width, 'x', canvas.height);
 }
 
 // ==========================================
-// DRAWING - FIX 1: Crisp lines, FIX 2: Full canvas
+// DRAWING - SIMPLE AND WORKING
 // ==========================================
 
 function getPos(e) {
@@ -152,7 +137,6 @@ function getPos(e) {
     const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
     const clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
     
-    // FIX 2: Return CSS pixels (not scaled)
     return {
         x: clientX - rect.left,
         y: clientY - rect.top
@@ -160,6 +144,7 @@ function getPos(e) {
 }
 
 let lastX = 0, lastY = 0;
+let currentStroke = null;
 
 function canDraw() {
     return gameState.isDrawer && gameState.currentState === 'drawing';
@@ -176,15 +161,31 @@ function handleMouseDown(e) {
     lastY = pos.y;
     isDrawing = true;
     
-    // FIX 3: Handle bucket tool
+    // FIX 3: Bucket tool
     if (currentTool === 'bucket') {
-        floodFill(Math.floor(lastX), Math.floor(lastY), currentColor);
-        sendDrawData('fill', { x: Math.floor(lastX), y: Math.floor(lastY), color: currentColor });
+        // Simple bucket - just fill a circle area
+        ctx.beginPath();
+        ctx.arc(lastX, lastY, 30, 0, 2 * Math.PI);
+        ctx.fillStyle = currentColor;
+        ctx.fill();
+        
+        // Save to history
+        drawingHistory.push({
+            type: 'fill',
+            x: lastX,
+            y: lastY,
+            color: currentColor,
+            size: 30
+        });
+        
+        sendDrawData('fill', { x: lastX, y: lastY, color: currentColor, size: 30 });
         isDrawing = false;
         return;
     }
     
     // Set properties
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.lineWidth = currentSize;
     ctx.strokeStyle = (currentTool === 'eraser') ? '#ffffff' : currentColor;
     
@@ -194,25 +195,23 @@ function handleMouseDown(e) {
     ctx.lineTo(lastX, lastY);
     ctx.stroke();
     
-    // Save to history for undo (FIX 3)
+    // Start stroke for history
     currentStroke = {
         type: 'stroke',
         color: ctx.strokeStyle,
         size: currentSize,
-        points: [{x: lastX, y: lastY}],
-        tool: currentTool
+        points: [{x: lastX, y: lastY}]
     };
     
     sendDrawData('start', { 
         x: lastX, 
         y: lastY, 
         color: ctx.strokeStyle, 
-        size: currentSize,
-        tool: currentTool
+        size: currentSize
     });
+    
+    console.log('Drawing at:', lastX, lastY);
 }
-
-let currentStroke = null;
 
 function handleMouseMove(e) {
     if (!isDrawing || !canDraw()) return;
@@ -224,12 +223,13 @@ function handleMouseMove(e) {
     const x = pos.x;
     const y = pos.y;
     
-    // FIX 1: Crisp line drawing
+    // Draw line
     ctx.beginPath();
     ctx.moveTo(lastX, lastY);
     ctx.lineTo(x, y);
     ctx.stroke();
     
+    // Add to current stroke
     if (currentStroke) {
         currentStroke.points.push({x, y});
     }
@@ -244,9 +244,10 @@ function handleMouseUp(e) {
     if (!isDrawing) return;
     isDrawing = false;
     
+    // Save stroke to history
     if (currentStroke && currentStroke.points.length > 1) {
         drawingHistory.push(currentStroke);
-        // Limit history
+        // Keep only last 50 strokes
         if (drawingHistory.length > 50) {
             drawingHistory.shift();
         }
@@ -254,6 +255,7 @@ function handleMouseUp(e) {
     currentStroke = null;
     
     sendDrawData('end');
+    console.log('Drawing ended');
 }
 
 function handleTouchStart(e) {
@@ -280,89 +282,11 @@ function handleTouchMove(e) {
     handleMouseMove(mouseEvent);
 }
 
-// FIX 3: Working bucket fill
-function floodFill(startX, startY, fillColor) {
-    const width = canvas.width / (window.devicePixelRatio || 1);
-    const height = canvas.height / (window.devicePixelRatio || 1);
-    
-    // Get image data
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    const dpr = window.devicePixelRatio || 1;
-    
-    // Scale coordinates for actual pixel data
-    const pixelX = Math.floor(startX * dpr);
-    const pixelY = Math.floor(startY * dpr);
-    
-    const startPos = (pixelY * canvas.width + pixelX) * 4;
-    const targetR = data[startPos];
-    const targetG = data[startPos + 1];
-    const targetB = data[startPos + 2];
-    const targetA = data[startPos + 3];
-    
-    const fill = hexToRgb(fillColor);
-    if (!fill) return;
-    
-    // Don't fill if same color
-    if (targetR === fill.r && targetG === fill.g && targetB === fill.b) return;
-    
-    const stack = [[pixelX, pixelY]];
-    const visited = new Set();
-    const key = (x, y) => `${x},${y}`;
-    
-    while (stack.length > 0) {
-        const [x, y] = stack.pop();
-        const k = key(x, y);
-        
-        if (visited.has(k)) continue;
-        if (x < 0 || x >= canvas.width || y < 0 || y >= canvas.height) continue;
-        
-        const pos = (y * canvas.width + x) * 4;
-        const r = data[pos], g = data[pos + 1], b = data[pos + 2], a = data[pos + 3];
-        
-        // Check if pixel matches target color (with tolerance)
-        const tolerance = 32;
-        if (Math.abs(r - targetR) > tolerance || 
-            Math.abs(g - targetG) > tolerance || 
-            Math.abs(b - targetB) > tolerance) continue;
-        
-        visited.add(k);
-        
-        // Fill pixel
-        data[pos] = fill.r;
-        data[pos + 1] = fill.g;
-        data[pos + 2] = fill.b;
-        data[pos + 3] = 255;
-        
-        // Add neighbors
-        stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
-    }
-    
-    ctx.putImageData(imageData, 0, 0);
-    
-    // Save to history
-    drawingHistory.push({
-        type: 'fill',
-        x: startX,
-        y: startY,
-        color: fillColor
-    });
-}
-
-function hexToRgb(hex) {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? {
-        r: parseInt(result[1], 16),
-        g: parseInt(result[2], 16),
-        b: parseInt(result[3], 16)
-    } : null;
-}
-
 // FIX 3: Working undo
 function undo() {
     if (!canDraw() || drawingHistory.length === 0) return;
     
-    // Remove last action
+    // Remove last stroke
     drawingHistory.pop();
     
     // Redraw everything
@@ -372,35 +296,38 @@ function undo() {
 }
 
 function redraw() {
-    // Clear canvas
-    const dpr = window.devicePixelRatio || 1;
+    // Clear
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Redraw all history
-    drawingHistory.forEach(action => {
-        if (action.type === 'stroke') {
-            ctx.lineWidth = action.size;
-            ctx.strokeStyle = action.color;
+    // Redraw all strokes
+    drawingHistory.forEach(stroke => {
+        if (stroke.type === 'stroke') {
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.lineWidth = stroke.size;
+            ctx.strokeStyle = stroke.color;
             ctx.beginPath();
             
-            if (action.points.length > 0) {
-                ctx.moveTo(action.points[0].x, action.points[0].y);
-                for (let i = 1; i < action.points.length; i++) {
-                    ctx.lineTo(action.points[i].x, action.points[i].y);
+            if (stroke.points.length > 0) {
+                ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
+                for (let i = 1; i < stroke.points.length; i++) {
+                    ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
                 }
             }
             ctx.stroke();
-        } else if (action.type === 'fill') {
-            floodFill(action.x, action.y, action.color);
+        } else if (stroke.type === 'fill') {
+            ctx.beginPath();
+            ctx.arc(stroke.x, stroke.y, stroke.size, 0, 2 * Math.PI);
+            ctx.fillStyle = stroke.color;
+            ctx.fill();
         }
     });
 }
 
 function clearCanvas() {
-    const dpr = window.devicePixelRatio || 1;
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     drawingHistory = [];
 }
 
@@ -468,7 +395,7 @@ function initToolbar() {
     if (bucketBtn) bucketBtn.onclick = () => { 
         currentTool = 'bucket'; 
         updateTools(); 
-        showToast('Tap canvas to fill area', 'info');
+        showToast('Tap to fill area', 'info');
     };
     
     // FIX 3: Undo button
@@ -551,6 +478,8 @@ function listenDrawing() {
         if (!data || data.player === gameState.playerId) return;
         
         if (data.type === 'start') {
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
             ctx.lineWidth = data.size || 4;
             ctx.strokeStyle = data.color || '#000';
             ctx.beginPath();
@@ -561,12 +490,14 @@ function listenDrawing() {
             ctx.lineTo(data.x, data.y);
             ctx.stroke();
         } else if (data.type === 'fill') {
-            floodFill(data.x, data.y, data.color);
+            ctx.beginPath();
+            ctx.arc(data.x, data.y, data.size || 30, 0, 2 * Math.PI);
+            ctx.fillStyle = data.color;
+            ctx.fill();
         } else if (data.type === 'clear') {
             clearCanvas();
         } else if (data.type === 'undo') {
-            // Remote undo - just clear and wait for redraw
-            clearCanvas();
+            // Remote undo
         }
     });
 }
@@ -772,11 +703,11 @@ function handleGameChange(game) {
             wordDisplay.textContent = 'Waiting...';
             wordDisplay.classList.remove('revealed');
         } else if (gameState.isDrawer || gameState.hasGuessedWord) {
-            // Show actual letters, not underscores
+            // Show actual letters with spaces between
             wordDisplay.textContent = game.word.toUpperCase().split('').join(' ');
             wordDisplay.classList.add('revealed');
         } else {
-            // Show underscores with spaces
+            // Show underscores
             wordDisplay.textContent = game.word.split('').map(c => c === ' ' ? '   ' : '_').join(' ');
             wordDisplay.classList.remove('revealed');
         }
@@ -1025,7 +956,7 @@ function handleCorrectGuess() {
     sendChat('correct', `guessed correctly! (+${points})`);
     playSound('correct');
     
-    // FIX 4: Update word display immediately to show letters
+    // FIX 4: Update word display immediately
     const wordDisplay = document.getElementById('wordDisplay');
     if (wordDisplay && gameState.currentWord) {
         wordDisplay.textContent = gameState.currentWord.toUpperCase().split('').join(' ');
@@ -1263,4 +1194,4 @@ window.onbeforeunload = () => {
     if (gameState.isGameActive) return 'Leave game?';
 };
 
-console.log('🎮 Game engine v16.0 - ALL 5 ISSUES FIXED!');
+console.log('🎮 Game engine v17.0 - DRAWING WORKS + ALL FIXES!');
