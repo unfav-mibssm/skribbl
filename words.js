@@ -97,28 +97,23 @@ const wordBank = [
 // ==========================================
 
 const WordBank = {
-    // Get multiple random words for selection (default: 3 words)
     getRandomWords: function(count = 3) {
         const shuffled = [...wordBank].sort(() => 0.5 - Math.random());
         return shuffled.slice(0, count);
     },
 
-    // Get a single random word
     getRandomWord: function() {
         return wordBank[Math.floor(Math.random() * wordBank.length)];
     },
 
-    // Get total word count
     getWordCount: function() {
         return wordBank.length;
     },
 
-    // Check if a word exists (case insensitive)
     hasWord: function(word) {
         return wordBank.includes(word.toLowerCase().trim());
     },
 
-    // Get words by difficulty (based on word length)
     getEasyWords: function() {
         return wordBank.filter(word => word.length <= 4);
     },
@@ -131,36 +126,28 @@ const WordBank = {
         return wordBank.filter(word => word.length > 7 || word.includes(' '));
     },
 
-    // Get random words by difficulty
     getRandomByDifficulty: function(difficulty) {
         let pool;
-        switch(difficulty) {
-            case 'easy': pool = this.getEasyWords(); break;
+        switch (difficulty) {
+            case 'easy':   pool = this.getEasyWords();   break;
             case 'medium': pool = this.getMediumWords(); break;
-            case 'hard': pool = this.getHardWords(); break;
-            default: pool = wordBank;
+            case 'hard':   pool = this.getHardWords();   break;
+            default:       pool = wordBank;
         }
         return pool[Math.floor(Math.random() * pool.length)];
     },
 
-    // Get 3 words with mixed difficulty for selection modal
     getWordOptions: function() {
         return [
-            { word: this.getRandomByDifficulty('easy'), difficulty: 'easy', points: 1 },
+            { word: this.getRandomByDifficulty('easy'),   difficulty: 'easy',   points: 1 },
             { word: this.getRandomByDifficulty('medium'), difficulty: 'medium', points: 2 },
-            { word: this.getRandomByDifficulty('hard'), difficulty: 'hard', points: 3 }
+            { word: this.getRandomByDifficulty('hard'),   difficulty: 'hard',   points: 3 }
         ];
     }
 };
 
-// Backwards compatibility - global functions
-function getRandomWords(count = 3) {
-    return WordBank.getRandomWords(count);
-}
+// Backwards compatibility
+function getRandomWords(count = 3) { return WordBank.getRandomWords(count); }
+function getRandomWord()            { return WordBank.getRandomWord(); }
 
-function getRandomWord() {
-    return WordBank.getRandomWord();
-}
-
-// Console log for debugging
 console.log(`📚 Word Bank loaded: ${WordBank.getWordCount()} words available`);
