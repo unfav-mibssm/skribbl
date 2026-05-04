@@ -13,24 +13,54 @@
     --light: #ecf0f1;
     --radius: 8px;
     --radius-lg: 12px;
+
+    /* Safe area insets for notch/home-bar devices */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
 }
 
-* {
+/* ==========================================
+   RESET & BASE
+   FIX: Use dvh (dynamic viewport height) so the layout
+   reacts to the virtual keyboard correctly on Android/iOS.
+   position:fixed on html/body anchors the layout to the
+   VISUAL viewport — preventing the keyboard from scrolling
+   content out of view.
+   ========================================== */
+*, *::before, *::after {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
     -webkit-tap-highlight-color: transparent;
 }
 
-html, body {
+html {
+    /* Prevent tap-zoom on double-tap without disabling pinch-zoom */
+    touch-action: manipulation;
+    /* Smooth scrolling for any scrollable child elements */
+    -webkit-overflow-scrolling: touch;
+}
+
+body {
     width: 100%;
-    height: 100%;
     font-family: 'Nunito', sans-serif;
     background: var(--dark);
-    height: 100vh;
+    /* dvh = dynamic viewport height (shrinks when keyboard opens) */
     height: 100dvh;
     overflow: hidden;
+    /* Fixed to visual viewport, not layout viewport */
     position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    /* Account for safe areas (notches, home bar) */
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
 }
 
 /* ==========================================
@@ -59,6 +89,8 @@ html, body {
 
 /* ==========================================
    LOGIN SCREEN
+   FIX: overflow-y:auto + height 100dvh so login box
+   scrolls if content is tall (small phones / landscape).
    ========================================== */
 #loginScreen {
     position: fixed;
@@ -68,8 +100,13 @@ html, body {
     height: 100%;
     display: flex;
     justify-content: center;
-    align-items: center;
-    padding: 15px;
+    align-items: flex-start;
+    /* Allow scroll on very small screens */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 20px 15px;
+    padding-top: max(20px, var(--safe-top));
+    padding-bottom: max(20px, var(--safe-bottom));
     z-index: 1000;
     background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #f39c12);
     background-size: 400% 400%;
@@ -77,14 +114,16 @@ html, body {
 }
 
 @keyframes gradientBG {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
+    0%   { background-position: 0% 50%; }
+    50%  { background-position: 100% 50%; }
     100% { background-position: 0% 50%; }
 }
 
 .login-container {
     width: 100%;
     max-width: 380px;
+    /* Push content to center vertically when there is enough space */
+    margin: auto;
 }
 
 .logo-section {
@@ -94,18 +133,19 @@ html, body {
 }
 
 .logo-icon {
-    font-size: 60px;
+    font-size: 56px;
     margin-bottom: 5px;
     animation: bounce 2s infinite;
+    display: block;
 }
 
 @keyframes bounce {
     0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-10px); }
+    50%       { transform: translateY(-10px); }
 }
 
 .logo-section h1 {
-    font-size: 36px;
+    font-size: 34px;
     font-weight: 800;
     margin-bottom: 5px;
     text-shadow: 0 2px 8px rgba(0,0,0,0.3);
@@ -118,7 +158,7 @@ html, body {
 
 .login-box {
     background: rgba(255, 255, 255, 0.98);
-    padding: 25px;
+    padding: 24px;
     border-radius: var(--radius-lg);
     box-shadow: 0 10px 40px rgba(0,0,0,0.3);
 }
@@ -134,6 +174,7 @@ html, body {
     color: var(--dark);
     font-size: 13px;
     text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .input-group input {
@@ -141,8 +182,14 @@ html, body {
     padding: 14px 16px;
     border: 2px solid #e0e0e0;
     border-radius: var(--radius);
+    /* FIX: 16px prevents iOS from auto-zooming on input focus */
     font-size: 16px;
     font-family: 'Nunito', sans-serif;
+    transition: border-color 0.2s;
+    background: #fff;
+    color: var(--dark);
+    -webkit-appearance: none;
+    appearance: none;
 }
 
 .input-group input:focus {
@@ -172,6 +219,12 @@ html, body {
     justify-content: center;
     gap: 8px;
     margin-bottom: 20px;
+    transition: opacity 0.2s;
+    font-family: 'Nunito', sans-serif;
+}
+
+.play-btn:active {
+    opacity: 0.85;
 }
 
 .feature-list {
@@ -179,6 +232,12 @@ html, body {
     justify-content: space-around;
     font-size: 12px;
     color: #666;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.feature-item {
+    white-space: nowrap;
 }
 
 .footer-text {
@@ -190,21 +249,27 @@ html, body {
 
 /* ==========================================
    GAME SCREEN
+   FIX: Use dvh and flex column so the layout fills exactly
+   the visual viewport (shrinks when keyboard opens).
    ========================================== */
 #gameScreen {
     display: none;
     width: 100%;
-    height: 100vh;
+    /* dvh shrinks when keyboard opens, keeping layout compact */
     height: 100dvh;
     flex-direction: column;
-    background: #f5f5f5;
+    background: #f0f2f5;
     position: fixed;
     top: 0;
     left: 0;
+    right: 0;
+    bottom: 0;
     overflow: hidden;
 }
 
-/* Top Bar */
+/* ==========================================
+   TOP BAR
+   ========================================== */
 .top-bar {
     background: var(--darker);
     color: white;
@@ -212,14 +277,15 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 15px;
+    padding: 0 12px;
     flex-shrink: 0;
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     z-index: 100;
 }
 
 .top-left {
-    width: 60px;
+    width: 50px;
+    flex-shrink: 0;
 }
 
 .home-btn {
@@ -231,6 +297,14 @@ html, body {
     border-radius: 50%;
     cursor: pointer;
     font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.home-btn:active {
+    background: rgba(255,255,255,0.25);
 }
 
 .top-center {
@@ -239,15 +313,18 @@ html, body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
+    gap: 1px;
+    min-width: 0;
+    padding: 0 4px;
 }
 
 .game-status {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 13px;
+    gap: 6px;
+    font-size: 12px;
     font-weight: 600;
+    white-space: nowrap;
 }
 
 .divider {
@@ -260,20 +337,28 @@ html, body {
 }
 
 .word-area {
-    height: 24px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    width: 100%;
 }
 
 .word-display {
-    font-size: 20px;
-    letter-spacing: 6px;
+    font-size: 18px;
+    letter-spacing: 5px;
     font-weight: 800;
     font-family: monospace;
     text-transform: uppercase;
     color: var(--accent);
     transition: all 0.3s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
 }
 
-/* FIX 4: Revealed word styling */
 .word-display.revealed {
     color: var(--success) !important;
     text-shadow: 0 0 10px rgba(46, 204, 113, 0.5);
@@ -282,87 +367,101 @@ html, body {
 }
 
 @keyframes revealPulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.1); }
+    0%   { transform: scale(1); }
+    50%  { transform: scale(1.1); }
     100% { transform: scale(1); }
 }
 
 .top-right {
-    width: 60px;
+    width: 50px;
     text-align: right;
+    flex-shrink: 0;
 }
 
 .room-code-small {
-    font-size: 11px;
+    font-size: 10px;
     font-family: monospace;
     background: rgba(255,255,255,0.1);
-    padding: 3px 6px;
+    padding: 3px 5px;
     border-radius: 4px;
+    white-space: nowrap;
 }
 
 /* ==========================================
-   GAME AREA - FIXED LAYOUT
+   GAME AREA
+   FIX: flex:1 + min-height:0 ensures this fills remaining
+   space below the top bar and doesn't overflow.
    ========================================== */
 .game-area {
     display: flex;
     flex-direction: column;
     flex: 1;
     overflow: hidden;
-    padding: 8px;
-    gap: 8px;
+    padding: 6px;
+    gap: 6px;
     min-height: 0;
 }
 
-/* Canvas Section */
+/* ==========================================
+   CANVAS SECTION
+   FIX: Use flex instead of fixed percentage heights.
+   flex:2 gives canvas ~twice as much height as bottom section.
+   ========================================== */
 .canvas-section {
-    height: 45%;
+    flex: 2;
     min-height: 0;
     position: relative;
-    background: #e8e8e8;
+    background: #dde1e7;
     border-radius: var(--radius);
     overflow: hidden;
     width: 100%;
-    padding: 0;
-    flex-shrink: 0;
 }
 
-/* FIX 2: Full size canvas wrapper */
 .canvas-wrapper {
     width: 100%;
     height: 100%;
     position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    flex-shrink: 0;
+    display: block;
     overflow: hidden;
 }
 
-/* FIX 1 & 2: High quality, full canvas */
+/* ==========================================
+   CANVAS - HiDPI / Retina Fix
+   FIX: The canvas element itself has no CSS width/height set here.
+   JavaScript reads the wrapper's pixel size, multiplies by
+   devicePixelRatio, sets canvas.width/height to that, then
+   CSS display size equals the wrapper — so it looks crisp on
+   retina/HiDPI and touch coordinates are perfectly accurate.
+   ========================================== */
 #gameCanvas {
-    background: white;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    cursor: crosshair;
-    touch-action: none;
-    /* Canvas is sized by JS to fill wrapper */
     display: block;
+    background: white;
+    cursor: crosshair;
+    /* Critical: prevents browser from intercepting touch for scroll */
+    touch-action: none;
+    /* CSS size is set by JS to match wrapper exactly */
+    width: 100%;
+    height: 100%;
+    /* Prevent blurry rendering on scaled canvases */
+    image-rendering: pixelated;
+    image-rendering: -webkit-optimize-contrast;
 }
 
 /* Drawer Badge */
 .drawer-badge {
     position: absolute;
-    top: 15px;
-    left: 15px;
+    top: 10px;
+    left: 10px;
     background: var(--accent);
     color: white;
-    padding: 8px 14px;
+    padding: 6px 12px;
     border-radius: 20px;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     display: none;
     z-index: 50;
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    pointer-events: none;
 }
 
 .drawer-badge.show {
@@ -373,30 +472,38 @@ html, body {
 .waiting-overlay {
     display: none;
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
     background: rgba(0,0,0,0.85);
     color: white;
     justify-content: center;
     align-items: center;
     flex-direction: column;
     z-index: 40;
+    font-size: 14px;
+    text-align: center;
+    padding: 20px;
+    gap: 10px;
 }
 
 .waiting-overlay.show {
     display: flex;
 }
 
+.waiting-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
 .spinner {
-    width: 50px;
-    height: 50px;
-    border: 4px solid rgba(255,255,255,0.3);
+    width: 44px;
+    height: 44px;
+    border: 4px solid rgba(255,255,255,0.25);
     border-top-color: var(--primary);
     border-radius: 50%;
     animation: spin 1s linear infinite;
-    margin-bottom: 15px;
 }
 
 @keyframes spin {
@@ -407,14 +514,13 @@ html, body {
 .round-overlay {
     display: none;
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
     background: rgba(0,0,0,0.92);
     z-index: 45;
     justify-content: center;
     align-items: center;
+    padding: 20px;
 }
 
 .round-overlay.show {
@@ -423,99 +529,103 @@ html, body {
 
 .round-content {
     background: white;
-    padding: 35px;
+    padding: 28px 24px;
     border-radius: var(--radius-lg);
     text-align: center;
-    max-width: 380px;
+    max-width: 340px;
+    width: 100%;
     animation: fadeIn 0.3s ease;
 }
 
 @keyframes fadeIn {
     from { opacity: 0; transform: scale(0.9); }
-    to { opacity: 1; transform: scale(1); }
+    to   { opacity: 1; transform: scale(1); }
 }
 
 .round-title {
-    font-size: 26px;
+    font-size: 24px;
     font-weight: 800;
     color: var(--dark);
-    margin-bottom: 15px;
+    margin-bottom: 12px;
 }
 
 .word-reveal {
-    font-size: 16px;
+    font-size: 15px;
     color: #666;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
 }
 
 #revealedWord {
     color: var(--primary);
-    font-size: 32px;
+    font-size: 28px;
     font-weight: 800;
     display: block;
-    margin-top: 10px;
+    margin-top: 8px;
     text-transform: uppercase;
 }
 
 /* ==========================================
-   TOOLBAR CONTAINER
+   TOOLBAR
    ========================================== */
 .toolbar-container {
     display: none;
     flex-shrink: 0;
-    padding: 4px 0;
+    padding: 3px 0;
     background: transparent;
     z-index: 50;
-    height: 60px;
+    height: 56px;
+    align-items: center;
+    justify-content: center;
 }
 
 .toolbar-container.show {
     display: flex;
-    justify-content: center;
 }
 
 .toolbar {
     display: flex;
     background: rgba(26, 37, 47, 0.95);
-    padding: 8px 16px;
+    padding: 6px 14px;
     border-radius: 30px;
-    gap: 6px;
+    gap: 5px;
     box-shadow: 0 4px 15px rgba(0,0,0,0.4);
-    height: 52px;
+    height: 48px;
     align-items: center;
 }
 
 .tool-group {
     display: flex;
-    gap: 6px;
+    gap: 5px;
 }
 
 .tool-btn {
-    width: 38px;
-    height: 38px;
+    width: 36px;
+    height: 36px;
     border: none;
     border-radius: 50%;
-    background: rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.12);
     color: white;
-    font-size: 16px;
+    font-size: 15px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s;
+    transition: background 0.15s, transform 0.15s;
+    flex-shrink: 0;
+    font-family: 'Nunito', sans-serif;
 }
 
-.tool-btn:hover {
-    background: rgba(255,255,255,0.2);
-    transform: scale(1.05);
+.tool-btn:active {
+    background: rgba(255,255,255,0.25);
+    transform: scale(0.93);
 }
 
 .tool-btn.active {
     background: var(--accent);
-    box-shadow: 0 2px 8px rgba(243, 156, 18, 0.4);
+    box-shadow: 0 2px 8px rgba(243, 156, 18, 0.5);
 }
 
-.tool-btn.danger:hover {
+.tool-btn.danger:active {
     background: var(--danger);
 }
 
@@ -525,16 +635,17 @@ html, body {
     border-radius: 50%;
     background: #000;
     border: 2px solid white;
+    flex-shrink: 0;
 }
 
-/* Popups */
+/* ==========================================
+   POPUPS
+   ========================================== */
 .popup-overlay {
     display: none;
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
     z-index: 150;
 }
 
@@ -544,21 +655,26 @@ html, body {
 
 .popup {
     display: none;
-    position: absolute;
-    bottom: 75px;
+    position: fixed;
+    /* Position above toolbar at bottom of canvas area */
+    bottom: auto;
     left: 50%;
     transform: translateX(-50%);
     background: white;
     border-radius: var(--radius);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.35);
     z-index: 200;
     min-width: 200px;
+    max-width: calc(100vw - 20px);
     animation: popupIn 0.2s ease;
+    /* Position dynamically by JS, but this is a safe fallback */
+    top: 50%;
+    margin-top: -100px;
 }
 
 @keyframes popupIn {
-    from { opacity: 0; transform: translateX(-50%) translateY(10px); }
-    to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 .popup.show {
@@ -569,11 +685,12 @@ html, body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
+    padding: 10px 14px;
     background: var(--light);
     font-weight: 700;
-    font-size: 14px;
+    font-size: 13px;
     border-bottom: 1px solid #ddd;
+    border-radius: var(--radius) var(--radius) 0 0;
 }
 
 .close-popup {
@@ -582,13 +699,15 @@ html, body {
     font-size: 22px;
     cursor: pointer;
     color: #666;
+    line-height: 1;
+    padding: 0 2px;
 }
 
 .color-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     gap: 10px;
-    padding: 15px;
+    padding: 14px;
 }
 
 .color-option {
@@ -600,8 +719,8 @@ html, body {
     transition: transform 0.1s;
 }
 
-.color-option:hover {
-    transform: scale(1.1);
+.color-option:active {
+    transform: scale(1.15);
 }
 
 .color-option.selected {
@@ -610,10 +729,11 @@ html, body {
 }
 
 .size-options {
-    padding: 12px;
+    padding: 10px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 7px;
+    min-width: 180px;
 }
 
 .size-option {
@@ -625,11 +745,11 @@ html, body {
     display: flex;
     align-items: center;
     gap: 12px;
-    transition: all 0.2s;
+    transition: background 0.15s;
 }
 
-.size-option:hover {
-    background: #e0e0e0;
+.size-option:active {
+    background: #dde;
 }
 
 .size-option.selected {
@@ -638,10 +758,13 @@ html, body {
 }
 
 /* ==========================================
-   BOTTOM SECTION - FIX 5: Always visible chat
+   BOTTOM SECTION
+   FIX: flex:3 gives it proportionally more height than toolbar.
+   Chat input uses position:sticky so it always stays at the
+   bottom of the chat panel regardless of keyboard state.
    ========================================== */
 .bottom-section {
-    height: 55%;
+    flex: 3;
     display: flex;
     background: white;
     border-radius: var(--radius);
@@ -649,65 +772,70 @@ html, body {
     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     flex-shrink: 0;
     min-height: 0;
-    position: relative;
+    /* Limit to a reasonable max to avoid chat dominating on tablets */
+    max-height: 260px;
 }
 
-/* Players Panel (Left 50%) */
+/* Players Panel */
 .players-panel {
-    width: 50%;
-    border-right: 2px solid #ddd;
+    width: 42%;
+    flex-shrink: 0;
+    border-right: 2px solid #e8e8e8;
     display: flex;
     flex-direction: column;
     background: #f8f9fa;
+    min-height: 0;
 }
 
-/* Chat Panel (Right 50%) */
+/* Chat Panel */
 .chat-panel {
-    width: 50%;
+    flex: 1;
     display: flex;
     flex-direction: column;
     background: white;
     min-height: 0;
-    /* FIX 5: Ensure chat panel doesn't get pushed down */
-    position: relative;
+    min-width: 0;
+    /*
+       FIX: The chat panel must NOT overflow the game screen.
+       By not setting overflow:hidden here, the chat-messages
+       div can scroll, and chat-input-area stays stuck at bottom.
+    */
 }
 
 .panel-header {
     background: var(--dark);
     color: white;
-    padding: 10px 12px;
-    font-size: 12px;
+    padding: 8px 10px;
+    font-size: 11px;
     font-weight: 700;
     display: flex;
     justify-content: space-between;
     align-items: center;
     text-transform: uppercase;
+    letter-spacing: 0.5px;
     flex-shrink: 0;
-    height: 40px;
+    height: 36px;
 }
 
 .players-list {
     flex: 1;
     overflow-y: auto;
-    padding: 10px;
+    padding: 6px;
+    -webkit-overflow-scrolling: touch;
 }
 
 .player-item {
     background: white;
-    padding: 8px 6px;
-    margin-bottom: 5px;
+    padding: 7px 5px;
+    margin-bottom: 4px;
     border-radius: var(--radius);
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     font-size: 11px;
     border-left: 3px solid transparent;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.08);
-    transition: all 0.2s;
-}
-
-.player-item:hover {
-    transform: translateX(3px);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+    transition: border-left-color 0.2s;
 }
 
 .player-item.current-drawer {
@@ -721,8 +849,8 @@ html, body {
 }
 
 .player-avatar {
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     border-radius: 50%;
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
     color: white;
@@ -730,7 +858,7 @@ html, body {
     align-items: center;
     justify-content: center;
     font-weight: 700;
-    font-size: 12px;
+    font-size: 11px;
     flex-shrink: 0;
 }
 
@@ -744,39 +872,42 @@ html, body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 11px;
+    font-size: 10px;
+    color: var(--dark);
 }
 
 .player-score {
     color: var(--primary);
     font-weight: 800;
-    font-size: 12px;
+    font-size: 11px;
+    flex-shrink: 0;
 }
 
-/* Chat */
+/* Chat Messages */
 .chat-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 10px;
+    padding: 8px;
     background: #f8f9fa;
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 4px;
     min-height: 0;
+    -webkit-overflow-scrolling: touch;
 }
 
 .chat-message {
-    padding: 8px 10px;
+    padding: 6px 9px;
     border-radius: 10px;
-    font-size: 13px;
-    line-height: 1.3;
+    font-size: 12px;
+    line-height: 1.35;
     word-break: break-word;
     animation: messageIn 0.2s ease;
 }
 
 @keyframes messageIn {
-    from { opacity: 0; transform: translateY(5px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 .chat-message.guess {
@@ -798,7 +929,7 @@ html, body {
     font-weight: 700;
     color: #856404;
     border: 1px solid #ffeaa7;
-    padding: 6px 8px;
+    padding: 5px 8px;
 }
 
 .chat-message .username {
@@ -808,41 +939,50 @@ html, body {
     display: block;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    margin-bottom: 2px;
+    margin-bottom: 1px;
 }
 
 /* ==========================================
-   CHAT INPUT - FIX 5: Always visible, never moves
+   CHAT INPUT AREA
+   FIX: This stays at the bottom of .chat-panel using
+   flex-shrink:0. It does NOT use position:fixed (which
+   would require tracking keyboard height). Instead, the
+   entire game layout uses dvh which shrinks when the
+   keyboard opens — so the bottom of .chat-panel
+   naturally stays just above the keyboard.
    ========================================== */
 .chat-input-area {
-    padding: 8px;
-    border-top: 1px solid #e0e0e0;
+    padding: 6px;
+    border-top: 1px solid #e8e8e8;
     display: flex;
-    gap: 6px;
+    gap: 5px;
     background: white;
     flex-shrink: 0;
-    height: 50px;
-    min-height: 50px;
-    position: sticky;
-    bottom: 0;
-    z-index: 10;
+    align-items: center;
+    /* No position:fixed — layout handles keyboard via dvh */
 }
 
 .chat-input-area input {
     flex: 1;
-    padding: 8px 12px;
-    border: 1px solid #ddd;
+    min-width: 0;
+    padding: 7px 11px;
+    border: 1.5px solid #ddd;
     border-radius: 20px;
+    /* FIX: 16px prevents iOS auto-zoom on focus */
     font-size: 16px;
     font-family: 'Nunito', sans-serif;
     transition: border-color 0.2s;
+    background: #fafafa;
+    color: var(--dark);
     height: 34px;
-    min-height: 34px;
+    -webkit-appearance: none;
+    appearance: none;
 }
 
 .chat-input-area input:focus {
     outline: none;
     border-color: var(--primary);
+    background: white;
 }
 
 .send-btn {
@@ -854,16 +994,16 @@ html, body {
     color: white;
     cursor: pointer;
     font-size: 12px;
-    transition: all 0.2s;
+    transition: background 0.15s;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+    font-family: 'Nunito', sans-serif;
 }
 
-.send-btn:hover {
+.send-btn:active {
     background: var(--primary-dark);
-    transform: scale(1.05);
 }
 
 /* ==========================================
@@ -872,10 +1012,8 @@ html, body {
 .modal-overlay {
     display: none;
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
     background: rgba(0,0,0,0.92);
     z-index: 2000;
     justify-content: center;
@@ -889,23 +1027,23 @@ html, body {
 
 .word-selection {
     background: white;
-    padding: 25px;
+    padding: 24px;
     border-radius: var(--radius-lg);
     width: 100%;
-    max-width: 400px;
+    max-width: 380px;
     animation: modalIn 0.3s ease;
 }
 
 @keyframes modalIn {
     from { opacity: 0; transform: scale(0.9) translateY(20px); }
-    to { opacity: 1; transform: scale(1) translateY(0); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
+    margin-bottom: 18px;
 }
 
 .modal-header h2 {
@@ -917,20 +1055,20 @@ html, body {
 .modal-timer {
     background: var(--danger);
     color: white;
-    width: 40px;
-    height: 40px;
+    width: 38px;
+    height: 38px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 800;
-    font-size: 16px;
+    font-size: 15px;
     animation: pulse 1s infinite;
 }
 
 @keyframes pulse {
     0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.05); }
+    50%       { transform: scale(1.06); }
 }
 
 .word-options {
@@ -940,22 +1078,24 @@ html, body {
 }
 
 .word-btn {
-    padding: 18px;
+    padding: 16px;
     background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
     color: white;
     border: none;
     border-radius: var(--radius);
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 800;
     cursor: pointer;
     text-transform: uppercase;
-    transition: all 0.2s;
-    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    transition: opacity 0.15s, transform 0.15s;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.35);
+    font-family: 'Nunito', sans-serif;
+    text-align: center;
 }
 
-.word-btn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+.word-btn:active {
+    opacity: 0.88;
+    transform: scale(0.97);
 }
 
 /* ==========================================
@@ -964,15 +1104,15 @@ html, body {
 .game-over-modal {
     display: none;
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
     background: rgba(0,0,0,0.95);
     z-index: 3000;
     justify-content: center;
     align-items: center;
     padding: 20px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .game-over-modal.show {
@@ -981,107 +1121,113 @@ html, body {
 
 .game-over-content {
     background: white;
-    padding: 30px;
+    padding: 28px 24px;
     border-radius: var(--radius-lg);
     text-align: center;
     width: 100%;
-    max-width: 450px;
+    max-width: 420px;
     animation: modalIn 0.4s ease;
+    margin: auto;
 }
 
 .trophy {
-    font-size: 50px;
-    margin-bottom: 10px;
+    font-size: 48px;
+    margin-bottom: 8px;
     animation: bounce 1s infinite;
+    display: block;
 }
 
 .game-over-content h1 {
-    font-size: 28px;
+    font-size: 26px;
     font-weight: 800;
-    margin-bottom: 20px;
+    margin-bottom: 18px;
     color: var(--dark);
 }
 
 .winner-display {
     background: linear-gradient(135deg, var(--accent) 0%, #e67e22 100%);
     color: white;
-    padding: 15px;
+    padding: 14px;
     border-radius: var(--radius-lg);
-    margin-bottom: 15px;
+    margin-bottom: 14px;
     animation: winnerPulse 2s infinite;
 }
 
 @keyframes winnerPulse {
-    0%, 100% { transform: scale(1); box-shadow: 0 4px 15px rgba(243, 156, 18, 0.4); }
-    50% { transform: scale(1.02); box-shadow: 0 6px 25px rgba(243, 156, 18, 0.6); }
+    0%, 100% { transform: scale(1);    box-shadow: 0 4px 15px rgba(243,156,18,0.4); }
+    50%       { transform: scale(1.02); box-shadow: 0 6px 25px rgba(243,156,18,0.6); }
 }
 
 .winner-crown {
-    font-size: 40px;
-    margin-bottom: 5px;
+    font-size: 36px;
+    margin-bottom: 4px;
 }
 
 .winner-name {
-    font-size: 24px;
+    font-size: 22px;
     font-weight: 800;
     margin-bottom: 3px;
 }
 
 .winner-score {
-    font-size: 18px;
+    font-size: 16px;
     opacity: 0.9;
 }
 
 .auto-restart-text {
     color: #666;
     font-size: 13px;
-    margin: 12px 0;
+    margin: 10px 0;
     font-style: italic;
 }
 
 .final-scores {
     max-height: 180px;
     overflow-y: auto;
-    margin-bottom: 15px;
+    margin-bottom: 14px;
     background: var(--light);
     border-radius: var(--radius);
-    padding: 12px;
+    padding: 10px;
+    -webkit-overflow-scrolling: touch;
 }
 
 .final-score-item {
-    padding: 10px;
-    margin: 5px 0;
+    padding: 9px;
+    margin: 4px 0;
     background: white;
     border-radius: var(--radius);
     display: flex;
     justify-content: space-between;
     align-items: center;
     font-size: 13px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.08);
 }
 
 .final-score-item.winner {
     background: linear-gradient(135deg, var(--accent) 0%, #e67e22 100%);
     color: white;
     font-weight: 800;
-    font-size: 15px;
+    font-size: 14px;
 }
 
 .final-rank {
     font-weight: 800;
-    font-size: 16px;
-    width: 35px;
+    font-size: 15px;
+    width: 32px;
 }
 
 .final-name {
     flex: 1;
-    margin-left: 10px;
+    margin-left: 8px;
     text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .final-points {
     font-weight: 800;
-    font-size: 14px;
+    font-size: 13px;
 }
 
 .game-over-actions {
@@ -1091,13 +1237,18 @@ html, body {
 
 .play-again-btn {
     flex: 1;
-    padding: 14px;
+    padding: 13px;
     border: none;
     border-radius: var(--radius);
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: opacity 0.15s;
+    font-family: 'Nunito', sans-serif;
+}
+
+.play-again-btn:active {
+    opacity: 0.85;
 }
 
 .play-again-btn.primary {
@@ -1106,66 +1257,61 @@ html, body {
     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
 }
 
-.play-again-btn.primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
-}
-
 .play-again-btn.secondary {
     background: var(--light);
     color: var(--dark);
 }
 
-.play-again-btn.secondary:hover {
-    background: #e0e0e0;
-}
-
-/* Toast */
+/* ==========================================
+   TOAST
+   ========================================== */
 .toast-container {
     position: fixed;
-    top: 60px;
+    top: 58px;
     right: 10px;
     z-index: 4000;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 7px;
+    pointer-events: none;
 }
 
 .toast {
     background: white;
-    padding: 12px 16px;
+    padding: 10px 14px;
     border-radius: var(--radius);
     box-shadow: 0 4px 15px rgba(0,0,0,0.2);
     font-size: 13px;
     font-weight: 600;
     border-left: 4px solid var(--primary);
     animation: slideIn 0.3s ease;
-    max-width: 280px;
+    max-width: 240px;
 }
 
-.toast.error { border-left-color: var(--danger); }
+.toast.error   { border-left-color: var(--danger); }
 .toast.success { border-left-color: var(--success); }
 .toast.warning { border-left-color: var(--warning); }
 
 @keyframes slideIn {
-    from { opacity: 0; transform: translateX(50px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateX(40px); }
+    to   { opacity: 1; transform: translateX(0); }
 }
 
-/* Loading */
+/* ==========================================
+   LOADING
+   ========================================== */
 .loading-overlay {
     display: none;
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
     background: rgba(0,0,0,0.9);
     z-index: 5000;
     justify-content: center;
     align-items: center;
     flex-direction: column;
     color: white;
+    gap: 16px;
 }
 
 .loading-overlay.show {
@@ -1173,118 +1319,222 @@ html, body {
 }
 
 .loading-spinner {
-    width: 50px;
-    height: 50px;
+    width: 48px;
+    height: 48px;
     border: 4px solid rgba(255,255,255,0.2);
     border-top-color: var(--primary);
     border-radius: 50%;
     animation: spin 1s linear infinite;
-    margin-bottom: 15px;
 }
 
 .loading-text {
-    font-size: 18px;
+    font-size: 17px;
     font-weight: 600;
 }
 
-/* Mobile Optimizations */
-@media (max-width: 768px) {
-    .canvas-section {
-        height: 45%;
+/* ==========================================
+   RESPONSIVE: PORTRAIT PHONES (≤480px)
+   Most Android / iPhone screen sizes
+   ========================================== */
+@media (max-width: 480px) {
+    .top-bar {
+        height: 46px;
+        padding: 0 10px;
     }
-    
-    .bottom-section {
-        height: 55%;
-    }
-    
+
     .word-display {
-        font-size: 16px;
+        font-size: 15px;
         letter-spacing: 4px;
     }
-    
+
     .word-display.revealed {
         letter-spacing: 3px;
     }
-    
+
+    .game-status {
+        font-size: 11px;
+    }
+
+    .game-area {
+        padding: 5px;
+        gap: 5px;
+    }
+
+    .bottom-section {
+        max-height: 220px;
+    }
+
+    .players-panel {
+        width: 38%;
+    }
+
     .player-item {
-        padding: 6px 5px;
-        font-size: 10px;
-        gap: 5px;
+        padding: 6px 4px;
+        gap: 4px;
     }
-    
+
     .player-avatar {
-        width: 26px;
-        height: 26px;
-        font-size: 11px;
-    }
-    
-    .player-name {
+        width: 24px;
+        height: 24px;
         font-size: 10px;
     }
-    
+
+    .player-name {
+        font-size: 9px;
+    }
+
     .player-score {
-        font-size: 11px;
+        font-size: 10px;
     }
-    
+
     .chat-message {
-        font-size: 12px;
-        padding: 6px 8px;
+        font-size: 11px;
+        padding: 5px 7px;
     }
-    
+
     .chat-input-area {
-        padding: 6px;
-        gap: 5px;
-        height: 46px;
-        min-height: 46px;
+        padding: 5px;
+        gap: 4px;
     }
-    
+
     .chat-input-area input {
-        padding: 6px 10px;
-        font-size: 16px;
         height: 32px;
+        padding: 5px 10px;
     }
-    
+
     .send-btn {
         width: 32px;
         height: 32px;
         font-size: 11px;
     }
-    
+
     .toolbar-container {
-        height: 54px;
-        padding: 3px 0;
+        height: 50px;
     }
-    
+
     .toolbar {
-        height: 48px;
-        padding: 6px 12px;
+        height: 44px;
+        padding: 4px 10px;
+        gap: 4px;
     }
-    
+
     .tool-btn {
-        width: 36px;
-        height: 36px;
-        font-size: 15px;
+        width: 34px;
+        height: 34px;
+        font-size: 14px;
     }
-    
+
     .color-preview {
         width: 18px;
         height: 18px;
     }
-    
+
+    .drawer-badge {
+        font-size: 11px;
+        padding: 5px 10px;
+    }
+
+    .logo-section h1 {
+        font-size: 28px;
+    }
+
+    .logo-icon {
+        font-size: 44px;
+    }
+
     .word-btn {
-        padding: 15px;
-        font-size: 18px;
+        padding: 13px;
+        font-size: 16px;
     }
-    
-    .winner-display {
-        padding: 12px;
+}
+
+/* ==========================================
+   RESPONSIVE: LANDSCAPE PHONES
+   When keyboard opens in landscape, the visible area is very
+   small. Let canvas-section shrink further.
+   ========================================== */
+@media (max-height: 500px) and (orientation: landscape) {
+    .top-bar {
+        height: 40px;
     }
-    
-    .winner-crown {
-        font-size: 35px;
+
+    .word-display {
+        font-size: 14px;
+        letter-spacing: 3px;
     }
-    
-    .winner-name {
+
+    .game-area {
+        padding: 4px;
+        gap: 4px;
+    }
+
+    .bottom-section {
+        max-height: 180px;
+    }
+
+    .toolbar-container {
+        height: 44px;
+    }
+
+    .toolbar {
+        height: 38px;
+        padding: 3px 10px;
+    }
+
+    .tool-btn {
+        width: 30px;
+        height: 30px;
+        font-size: 13px;
+    }
+
+    .panel-header {
+        height: 30px;
+        padding: 4px 8px;
+    }
+
+    .chat-input-area {
+        padding: 4px;
+    }
+
+    .chat-input-area input,
+    .send-btn {
+        height: 30px;
+    }
+}
+
+/* ==========================================
+   RESPONSIVE: TABLETS (≥600px)
+   Give more space to canvas on larger screens
+   ========================================== */
+@media (min-width: 600px) {
+    .bottom-section {
+        max-height: 280px;
+    }
+
+    .canvas-section {
+        flex: 3;
+    }
+
+    .word-display {
         font-size: 20px;
+        letter-spacing: 6px;
+    }
+
+    .tool-btn {
+        width: 40px;
+        height: 40px;
+        font-size: 17px;
+    }
+
+    .player-name {
+        font-size: 12px;
+    }
+
+    .player-score {
+        font-size: 12px;
+    }
+
+    .chat-message {
+        font-size: 13px;
     }
 }
