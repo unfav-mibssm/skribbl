@@ -2,8 +2,25 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
-    <title>Skribbl.io Clone</title>
+    <!--
+        FIXES APPLIED:
+        1. Removed maximum-scale=1.0 and user-scalable=no which Android Chrome
+           sometimes treats as a cue to force desktop layout on masked/forwarded links.
+        2. interactive-widget=resizes-content keeps the layout stable when
+           the virtual keyboard opens — the visual viewport shrinks, content resizes,
+           but we DON'T shift the whole page up.
+        3. width=device-width + initial-scale=1.0 ensures correct mobile scaling
+           even when loaded via a URL redirect or forwarded link.
+        4. Added viewport-fit=cover for notch/safe-area support.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+    <!-- Disable phone number / email detection that can break layout -->
+    <meta name="format-detection" content="telephone=no, date=no, email=no, address=no">
+    <!-- Force mobile rendering on all browsers -->
+    <meta name="HandheldFriendly" content="true">
+    <meta name="MobileOptimized" content="width">
+    <!-- Prevent iOS from zooming on input focus (handled via font-size:16px on inputs in CSS) -->
+    <title>Skribbl.io 28</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
 </head>
@@ -20,13 +37,15 @@
             <div class="login-box">
                 <div class="input-group">
                     <label for="playerName">Your Name</label>
-                    <input type="text" id="playerName" placeholder="Enter your name" maxlength="12" autocomplete="off">
+                    <input type="text" id="playerName" placeholder="Enter your name" maxlength="12"
+                           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
                     <span class="input-hint">Max 12 characters</span>
                 </div>
                 
                 <div class="input-group">
                     <label for="roomCode">Room Code</label>
-                    <input type="text" id="roomCode" placeholder="Leave empty to create new room" maxlength="8" autocomplete="off">
+                    <input type="text" id="roomCode" placeholder="Leave empty to create new room" maxlength="8"
+                           autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
                     <span class="input-hint">Join existing room or create new</span>
                 </div>
                 
@@ -80,9 +99,9 @@
                     <canvas id="gameCanvas"></canvas>
                     
                     <!-- Drawer Badge -->
-                    <div class="drawer-badge" id="drawerBadge">✏️</div>
+                    <div class="drawer-badge" id="drawerBadge">✏️ You're Drawing!</div>
                     
-                    <!-- Waiting Overlay - ONLY FOR NON-DRAWERS -->
+                    <!-- Waiting Overlay -->
                     <div class="waiting-overlay" id="waitingOverlay">
                         <div class="waiting-content">
                             <div class="spinner"></div>
@@ -100,7 +119,7 @@
                     </div>
                 </div>
 
-                <!-- Popups -->
+                <!-- Popups (scoped inside canvas-section for correct positioning) -->
                 <div class="popup-overlay" id="popupOverlay"></div>
                 <div class="popup color-popup" id="colorPopup">
                     <div class="popup-header">Colors <button class="close-popup" onclick="closePopups()">×</button></div>
@@ -112,7 +131,7 @@
                 </div>
             </div>
 
-            <!-- TOOLBAR - MOVED TO MIDDLE -->
+            <!-- Toolbar -->
             <div class="toolbar-container" id="toolbarContainer">
                 <div class="toolbar" id="toolbar">
                     <div class="tool-group">
@@ -129,7 +148,7 @@
                 </div>
             </div>
 
-            <!-- Bottom Section: Players Left, Chat Right -->
+            <!-- Bottom Section: Players + Chat -->
             <div class="bottom-section">
                 <!-- Players Panel -->
                 <div class="players-panel">
@@ -147,7 +166,20 @@
                     </div>
                     <div class="chat-messages" id="chatMessages"></div>
                     <div class="chat-input-area" id="chatInputArea">
-                        <input type="text" id="chatInput" placeholder="Type your guess here..." maxlength="50" autocomplete="off">
+                        <!--
+                            inputmode="text" + enterkeyhint="send" improves the
+                            virtual keyboard on Android/iOS for chat inputs.
+                            font-size 16px on the input (in CSS) prevents iOS auto-zoom.
+                        -->
+                        <input type="text" id="chatInput"
+                               placeholder="Type your guess..."
+                               maxlength="50"
+                               autocomplete="off"
+                               autocorrect="off"
+                               autocapitalize="off"
+                               spellcheck="false"
+                               inputmode="text"
+                               enterkeyhint="send">
                         <button onclick="sendMessage()" class="send-btn">➤</button>
                     </div>
                 </div>
