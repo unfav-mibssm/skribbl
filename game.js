@@ -1,1336 +1,1721 @@
-// ==========================================
-// GAME ENGINE
-// FIXES:
-//   - HiDPI/Retina canvas: internal resolution = CSS size × devicePixelRatio
-//   - Touch coordinates use getBoundingClientRect() + DPR scale
-//   - No layout shifts from keyboard (layout handled by CSS dvh)
-//   - ResizeObserver correctly redraws at new DPR-aware size
-// ==========================================
+/* ================================================================
+   SKRIBBL.IO 28 — COMPLETE GAME ENGINE
+   Fixes applied:
+   1. Canvas always visible — sized by JS reading wrapper dimensions
+   2. Canvas never resizes on keyboard open — only orientation triggers resize
+   3. HiDPI/Retina: buffer = CSS size × devicePixelRatio
+   4. Touch coordinates accurate via getBoundingClientRect
+   5. Drawing fully synced: start dot, segments, fill, undo, clear
+   6. Undo synced via snapshot so all clients redraw identically
+   7. Chat always visible, toolbar in own fixed-height row
+   8. Correct guess: trim + lowercase exact match
+   9. Round ends correctly after all guess or timer
+   10. Turn order stable, drawer index tracked in Firebase
+   ================================================================ */
 
-let gameState = {
-    roomCode: null,
-    playerName: null,
-    playerId: null,
-    isDrawer: false,
-    currentWord: null,
-    round: 1,
-    maxRounds: 10,
-    timer: 80,
-    players: {},
-    playerList: [],
-    currentDrawerIndex: 0,
-    isGameActive: false,
-    allGuessed: false,
-    lastPlayerCount: 0,
-    leftPlayerName: null,
+'use strict';
+
+// ================================================================
+// GAME STATE
+// ================================================================
+const GS = {
+    // Player identity
+    roomCode:    null,
+    playerName:  null,
+    playerId:    null,
+
+    // Game progression
+    isDrawer:              false,
+    currentWord:           null,
+    round:                 1,
+    maxRounds:             10,
+    currentState:          'waiting',  // waiting | choosing | drawing | round_end | game_over
+    hasGuessedCorrectly:   false,
+    endRoundLock:          false,
+
+    // Firebase live data
+    players:     {},
+    game:        null,
+    joinTime:    null,
     gameStarted: false,
-    joinTime: null,
-    hasShownGame: false,
-    lastState: null,
-    lastDrawer: null,
-    lastRound: null,
-    hasGuessedWord: false,
-    currentState: 'waiting'
 };
 
-let canvas, ctx;
-let isDrawing = false;
-let currentTool = 'brush';
-let currentColor = '#000000';
-let currentSize = 4;
-let drawingHistory = [];
-let timerInterval = null;
+// ================================================================
+// CANVAS STATE
+// ================================================================
+let canvas  = null;
+let ctx     = null;
+let canvasCSSW  = 0;   // CSS pixel width of canvas
+let canvasCSSH  = 0;   // CSS pixel height of canvas
+let canvasDPR   = 1;   // devicePixelRatio at init
+let canvasReady = false;
+
+// Drawing state
+let isPointerDown  = false;
+let currentTool    = 'brush';   // brush | eraser | bucket
+let currentColor   = '#000000';
+let currentSize    = 5;
+let lastX = 0, lastY = 0;
+
+// History for undo — array of stroke/fill objects
+// Strokes use CSS pixel coordinates (DPR scaling handled by ctx transform)
+let drawHistory  = [];
+let activeStroke = null;  // stroke being drawn right now
+
+// ================================================================
+// FIREBASE REFS
+// ================================================================
+let roomRef    = null;
+let playersRef = null;
+let chatRef    = null;
+let drawRef    = null;
+let gameRef    = null;
+
+// ================================================================
+// TIMERS
+// ================================================================
+let timerInterval    = null;
 let autoRestartTimer = null;
-let wordSelectTimer = null;
-let canvasInitialized = false;
+let wordSelectTimer  = null;
 
-// DPR tracking — needed to scale canvas internal resolution
-let canvasDPR = 1;
+// ================================================================
+// SOUNDS
+// ================================================================
+const SFX = {};
 
-let roomRef, playersRef, chatRef, drawingRef, gameRef;
-let sounds = {};
-
-const colors = [
-    '#000000', '#2c3e50', '#8e44ad', '#c0392b', '#d35400',
-    '#f39c12', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db',
-    '#2980b9', '#9b59b6', '#e74c3c', '#e67e22', '#795548',
-    '#ffffff', '#95a5a6', '#34495e', '#16a085', '#27ae60'
+// ================================================================
+// PALETTE & SIZES
+// ================================================================
+const COLOR_PALETTE = [
+    '#000000', '#1a1a2e', '#16213e', '#0f3460',
+    '#533483', '#e94560', '#f5a623', '#f8e71c',
+    '#7ed321', '#4a90d9', '#50e3c2', '#b8e986',
+    '#ffffff', '#d0d0d0', '#9b9b9b', '#4a4a4a',
+    '#8b572a', '#d0021b', '#bd10e0', '#417505',
 ];
 
-const brushSizes = [
-    { size: 2, label: 'Small' },
-    { size: 5, label: 'Medium' },
-    { size: 10, label: 'Large' },
-    { size: 20, label: 'Huge' }
+const BRUSH_SIZES = [
+    { px: 2,  label: 'Tiny',   icon: '•'  },
+    { px: 5,  label: 'Small',  icon: '⬤'  },
+    { px: 10, label: 'Medium', icon: '⬤'  },
+    { px: 18, label: 'Large',  icon: '⬤'  },
+    { px: 28, label: 'Huge',   icon: '⬤'  },
 ];
 
-// ==========================================
+// ================================================================
+// DOM HELPERS
+// ================================================================
+function el(id) { return document.getElementById(id); }
+function qs(sel, root) { return (root || document).querySelector(sel); }
+
+// ================================================================
 // INITIALIZATION
-// ==========================================
-
+// ================================================================
 document.addEventListener('DOMContentLoaded', () => {
-    initColorPicker();
-    initSizePicker();
-    initToolbar();
-    initSounds();
-    
-    const chatInput = document.getElementById('chatInput');
+    buildColorPicker();
+    buildSizePicker();
+    bindToolbarButtons();
+    loadSounds();
+
+    // Enter key in chat sends message
+    const chatInput = el('chatInput');
     if (chatInput) {
-        chatInput.addEventListener('keydown', (e) => {
+        chatInput.addEventListener('keydown', e => {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 sendMessage();
             }
         });
     }
-    
-    const popupOverlay = document.getElementById('popupOverlay');
-    if (popupOverlay) {
-        popupOverlay.addEventListener('click', closePopups);
-    }
 });
 
-function initSounds() {
-    sounds.join    = document.getElementById('soundJoin');
-    sounds.correct = document.getElementById('soundCorrect');
-    sounds.roundEnd = document.getElementById('soundRoundEnd');
-    sounds.leave   = document.getElementById('soundLeave');
-    sounds.enter   = document.getElementById('soundEnter');
+function loadSounds() {
+    SFX.join     = el('soundJoin');
+    SFX.correct  = el('soundCorrect');
+    SFX.roundEnd = el('soundRoundEnd');
+    SFX.leave    = el('soundLeave');
+    SFX.enter    = el('soundEnter');
 }
 
-function playSound(soundName) {
-    const sound = sounds[soundName];
-    if (sound) {
-        sound.currentTime = 0;
-        sound.play().catch(() => {});
-    }
+function playSound(name) {
+    try {
+        const s = SFX[name];
+        if (s) { s.currentTime = 0; s.play().catch(() => {}); }
+    } catch (ignore) {}
 }
 
-// ==========================================
-// CANVAS — HiDPI / Retina Fix
-//
-// Problem: canvas.width = wrapperPx draws at 1x and CSS
-// stretches it, causing blur on Retina/HiDPI screens.
-//
-// Fix: canvas INTERNAL resolution = CSS size × devicePixelRatio.
-// The context is scaled by DPR so drawing coordinates remain in
-// CSS-pixel space (no changes needed in draw functions).
-// Touch coordinates are divided by DPR to stay in CSS-pixel space.
-// ==========================================
+// ================================================================
+// CANVAS — HiDPI AWARE, STABLE SIZE
+// ================================================================
 
+/*
+ * The canvas element fills its wrapper via CSS (width:100%, height:100%).
+ * The wrapper has flex:1 so it grows to fill the remaining screen height.
+ *
+ * initCanvas() reads the wrapper's actual pixel dimensions, then sets
+ * canvas.width = width × DPR and canvas.height = height × DPR.
+ * ctx is then scaled by DPR so all drawing calls use CSS pixel values.
+ *
+ * CRITICAL: We do NOT resize the canvas when the keyboard opens.
+ * The keyboard just compresses the flex layout (canvas shrinks visually
+ * but we keep the same internal buffer). Only orientation change
+ * triggers a true reinit.
+ */
 function initCanvas() {
-    canvas = document.getElementById('gameCanvas');
-    if (!canvas) { console.error('Canvas not found'); return; }
-    
+    canvas = el('gameCanvas');
+    if (!canvas) { console.error('Canvas element not found!'); return; }
+
+    const wrapper = el('canvasWrapper');
+    if (!wrapper) { console.error('Canvas wrapper not found!'); return; }
+
+    // Force layout to be calculated before reading sizes
+    const rect = wrapper.getBoundingClientRect();
+    canvasCSSW = Math.floor(rect.width);
+    canvasCSSH = Math.floor(rect.height);
+    canvasDPR  = window.devicePixelRatio || 1;
+
+    if (canvasCSSW <= 0 || canvasCSSH <= 0) {
+        // Wrapper not laid out yet — retry after a frame
+        requestAnimationFrame(initCanvas);
+        return;
+    }
+
+    // Set internal buffer dimensions (physical pixels)
+    canvas.width  = Math.round(canvasCSSW * canvasDPR);
+    canvas.height = Math.round(canvasCSSH * canvasDPR);
+
+    // Get context with alpha:false for better performance on mobile
     ctx = canvas.getContext('2d', { alpha: false });
-    canvasInitialized = true;
-    
-    sizeCanvas(true);
-    attachCanvasListeners();
-    
-    console.log('Canvas init — CSS size:', getCSSSize(), '| DPR:', canvasDPR);
-}
 
-/**
- * Returns the CSS pixel size of the canvas element.
- */
-function getCSSSize() {
-    const rect = canvas.getBoundingClientRect();
-    return { w: Math.floor(rect.width), h: Math.floor(rect.height) };
-}
+    // Scale transform so all draw calls use logical CSS pixels
+    ctx.setTransform(canvasDPR, 0, 0, canvasDPR, 0, 0);
 
-/**
- * Resize the canvas internal buffer to match CSS size × DPR.
- * Preserves existing drawing by copying to a temp canvas first.
- * @param {boolean} fresh - if true, skip content preservation
- */
-function sizeCanvas(fresh) {
-    if (!canvas || !ctx) return;
-    
-    const dpr  = window.devicePixelRatio || 1;
-    const css  = getCSSSize();
-    
-    // Internal pixel dimensions
-    const iw = Math.floor(css.w * dpr);
-    const ih = Math.floor(css.h * dpr);
-    
-    if (!fresh && (Math.abs(canvas.width - iw) < 2) && (Math.abs(canvas.height - ih) < 2)) {
-        return; // No meaningful change
-    }
-    
-    let savedImage = null;
-    if (!fresh && canvas.width > 0 && canvas.height > 0) {
-        // Capture current content before resize
-        const tmp = document.createElement('canvas');
-        tmp.width  = canvas.width;
-        tmp.height = canvas.height;
-        tmp.getContext('2d').drawImage(canvas, 0, 0);
-        savedImage = tmp;
-    }
-    
-    // Set internal buffer size
-    canvas.width  = iw;
-    canvas.height = ih;
-    
-    // Scale context so all subsequent draws are in CSS-pixel coordinates
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    
-    canvasDPR = dpr;
-    
-    // White background
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, css.w, css.h);
-    
-    // Restore previous drawing scaled to new CSS size
-    if (savedImage) {
-        // Draw at 1/dpr scale because context is already scaled by dpr
-        ctx.drawImage(savedImage, 0, 0, css.w, css.h);
-    }
-    
+    // Default context settings
     ctx.lineCap  = 'round';
     ctx.lineJoin = 'round';
+    ctx.imageSmoothingEnabled = true;
+
+    // White background
+    fillWhite();
+
+    // Attach pointer/touch events
+    attachCanvasEvents();
+
+    // Handle device rotation only
+    window.addEventListener('orientationchange', onOrientationChange);
+
+    canvasReady = true;
+    console.log(`Canvas ready: ${canvasCSSW}×${canvasCSSH} CSS px | ${canvas.width}×${canvas.height} buffer | DPR:${canvasDPR}`);
 }
 
-function handleCanvasResize() {
-    if (!canvas || !ctx || !canvasInitialized) return;
-    sizeCanvas(false);
+function fillWhite() {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvasCSSW, canvasCSSH);
 }
 
-let resizeObserver;
-function setupResizeObserver() {
-    const wrapper = document.querySelector('.canvas-wrapper');
-    if (wrapper && !resizeObserver) {
-        resizeObserver = new ResizeObserver(() => {
-            clearTimeout(window._canvasResizeTimer);
-            window._canvasResizeTimer = setTimeout(handleCanvasResize, 80);
-        });
-        resizeObserver.observe(wrapper);
-    }
+function onOrientationChange() {
+    // Wait for browser to complete the rotation before reading new sizes
+    setTimeout(() => {
+        if (!canvas || !canvasReady) return;
+
+        const wrapper = el('canvasWrapper');
+        if (!wrapper) return;
+
+        const rect    = wrapper.getBoundingClientRect();
+        const newCSSW = Math.floor(rect.width);
+        const newCSSH = Math.floor(rect.height);
+        const newDPR  = window.devicePixelRatio || 1;
+
+        // Only reinit if dimensions actually changed meaningfully
+        if (Math.abs(newCSSW - canvasCSSW) < 4 && Math.abs(newCSSH - canvasCSSH) < 4) return;
+
+        // Save current drawing as image so we can restore it
+        const imageDataURL = canvas.toDataURL('image/png');
+
+        canvasCSSW = newCSSW;
+        canvasCSSH = newCSSH;
+        canvasDPR  = newDPR;
+
+        canvas.width  = Math.round(canvasCSSW * canvasDPR);
+        canvas.height = Math.round(canvasCSSH * canvasDPR);
+
+        ctx.setTransform(canvasDPR, 0, 0, canvasDPR, 0, 0);
+        ctx.lineCap  = 'round';
+        ctx.lineJoin = 'round';
+        ctx.imageSmoothingEnabled = true;
+
+        fillWhite();
+
+        // Restore previous drawing scaled to new size
+        const img    = new Image();
+        img.onload   = () => ctx.drawImage(img, 0, 0, canvasCSSW, canvasCSSH);
+        img.src      = imageDataURL;
+    }, 350);
 }
 
-function attachCanvasListeners() {
-    // Remove any old listeners first
-    canvas.removeEventListener('mousedown',  handleMouseDown);
-    canvas.removeEventListener('mousemove',  handleMouseMove);
-    canvas.removeEventListener('mouseup',    handleMouseUp);
-    canvas.removeEventListener('mouseleave', handleMouseUp);
-    canvas.removeEventListener('touchstart', handleTouchStart);
-    canvas.removeEventListener('touchmove',  handleTouchMove);
-    canvas.removeEventListener('touchend',   handleTouchEnd);
-    
-    canvas.addEventListener('mousedown',  handleMouseDown);
-    canvas.addEventListener('mousemove',  handleMouseMove);
-    canvas.addEventListener('mouseup',    handleMouseUp);
-    canvas.addEventListener('mouseleave', handleMouseUp);
-    
-    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
-    canvas.addEventListener('touchmove',  handleTouchMove,  { passive: false });
-    canvas.addEventListener('touchend',   handleTouchEnd,   { passive: false });
+// ================================================================
+// CANVAS EVENTS
+// ================================================================
+
+function attachCanvasEvents() {
+    canvas.removeEventListener('mousedown',   onMouseDown);
+    canvas.removeEventListener('mousemove',   onMouseMove);
+    canvas.removeEventListener('mouseup',     onMouseUp);
+    canvas.removeEventListener('mouseleave',  onMouseUp);
+    canvas.removeEventListener('touchstart',  onTouchStart);
+    canvas.removeEventListener('touchmove',   onTouchMove);
+    canvas.removeEventListener('touchend',    onTouchEnd);
+    canvas.removeEventListener('touchcancel', onTouchEnd);
+
+    canvas.addEventListener('mousedown',  onMouseDown);
+    canvas.addEventListener('mousemove',  onMouseMove);
+    canvas.addEventListener('mouseup',    onMouseUp);
+    canvas.addEventListener('mouseleave', onMouseUp);
+    canvas.addEventListener('touchstart',  onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove',   onTouchMove,  { passive: false });
+    canvas.addEventListener('touchend',    onTouchEnd,   { passive: false });
+    canvas.addEventListener('touchcancel', onTouchEnd,   { passive: false });
 }
 
-// ==========================================
-// COORDINATE SYSTEM
-//
-// getPos() returns coordinates in CSS pixels (matching the
-// coordinate system we draw in). The DPR scaling is handled
-// by ctx.setTransform(), so draw calls use CSS-pixel values.
-//
-// Touch accuracy fix: getBoundingClientRect() is the source
-// of truth for where the canvas is on screen. We subtract its
-// top-left to get the pointer position within the canvas,
-// all in CSS pixels.
-// ==========================================
-
-function getPos(e) {
+// Returns CSS pixel position within canvas from any pointer event
+function getCanvasXY(e) {
     const rect = canvas.getBoundingClientRect();
-    
-    let clientX, clientY;
+    let cx, cy;
     if (e.touches && e.touches.length > 0) {
-        clientX = e.touches[0].clientX;
-        clientY = e.touches[0].clientY;
+        cx = e.touches[0].clientX;
+        cy = e.touches[0].clientY;
     } else if (e.changedTouches && e.changedTouches.length > 0) {
-        clientX = e.changedTouches[0].clientX;
-        clientY = e.changedTouches[0].clientY;
+        cx = e.changedTouches[0].clientX;
+        cy = e.changedTouches[0].clientY;
     } else {
-        clientX = e.clientX;
-        clientY = e.clientY;
+        cx = e.clientX;
+        cy = e.clientY;
     }
-    
-    // CSS-pixel position within canvas
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-    
-    const cssW = rect.width;
-    const cssH = rect.height;
-    
     return {
-        x: Math.max(0, Math.min(cssW - 1, x)),
-        y: Math.max(0, Math.min(cssH - 1, y))
+        x: Math.max(0, Math.min(canvasCSSW - 1, cx - rect.left)),
+        y: Math.max(0, Math.min(canvasCSSH - 1, cy - rect.top)),
     };
 }
 
-let lastX = 0, lastY = 0;
-let currentStroke = null;
-
 function canDraw() {
-    return gameState.isDrawer && gameState.currentState === 'drawing';
+    return GS.isDrawer && GS.currentState === 'drawing' && canvasReady;
 }
 
-// ==========================================
-// MOUSE / TOUCH HANDLERS
-// ==========================================
+// Touch wrappers
+function onTouchStart(e) { e.preventDefault(); if (e.touches.length === 1) onMouseDown(e); }
+function onTouchMove(e)  { e.preventDefault(); if (e.touches.length === 1) onMouseMove(e); }
+function onTouchEnd(e)   { e.preventDefault(); onMouseUp(e); }
 
-function handleMouseDown(e) {
+// ── POINTER DOWN ─────────────────────────────────────────────────
+function onMouseDown(e) {
     if (!canDraw()) return;
     e.preventDefault();
-    
-    const pos = getPos(e);
-    lastX = pos.x;
-    lastY = pos.y;
-    isDrawing = true;
-    
+
+    const { x, y } = getCanvasXY(e);
+    lastX = x;
+    lastY = y;
+    isPointerDown = true;
+
     if (currentTool === 'bucket') {
-        floodFill(Math.round(lastX), Math.round(lastY), currentColor);
-        drawingHistory.push({ type: 'fill', x: Math.round(lastX), y: Math.round(lastY), color: currentColor });
-        sendDrawData('fill', { x: Math.round(lastX), y: Math.round(lastY), color: currentColor });
-        isDrawing = false;
+        const fillX = Math.round(x);
+        const fillY = Math.round(y);
+        floodFill(fillX, fillY, currentColor);
+        const entry = { type: 'fill', x: fillX, y: fillY, color: currentColor };
+        drawHistory.push(entry);
+        firebasePushDraw({ type: 'fill', x: fillX, y: fillY, color: currentColor });
+        isPointerDown = false;
         return;
     }
-    
-    const strokeColor = (currentTool === 'eraser') ? '#ffffff' : currentColor;
-    
+
+    const strokeColor = currentTool === 'eraser' ? '#ffffff' : currentColor;
+
+    // Draw a dot at the start position so single taps register
+    ctx.beginPath();
+    ctx.arc(x, y, currentSize / 2, 0, Math.PI * 2);
+    ctx.fillStyle = strokeColor;
+    ctx.fill();
+
+    // Begin tracking this stroke
+    activeStroke = {
+        type:   'stroke',
+        color:  strokeColor,
+        size:   currentSize,
+        points: [{ x, y }],
+    };
+
+    // Sync start event
+    firebasePushDraw({
+        type:  'start',
+        x,
+        y,
+        color: strokeColor,
+        size:  currentSize,
+    });
+}
+
+// ── POINTER MOVE ─────────────────────────────────────────────────
+function onMouseMove(e) {
+    if (!isPointerDown || !canDraw()) return;
+    e.preventDefault();
+
+    const { x, y } = getCanvasXY(e);
+    const dist = Math.hypot(x - lastX, y - lastY);
+    if (dist < 1.2) return; // Skip tiny moves
+
+    const strokeColor = currentTool === 'eraser' ? '#ffffff' : currentColor;
+
     ctx.lineWidth   = currentSize;
     ctx.strokeStyle = strokeColor;
     ctx.lineCap     = 'round';
     ctx.lineJoin    = 'round';
-    
-    // Draw a dot at start position
-    ctx.beginPath();
-    ctx.arc(lastX, lastY, currentSize / 2, 0, Math.PI * 2);
-    ctx.fillStyle = strokeColor;
-    ctx.fill();
-    
-    currentStroke = {
-        type: 'stroke',
-        color: strokeColor,
-        size: currentSize,
-        points: [{ x: lastX, y: lastY }]
-    };
-    
-    sendDrawData('start', { x: lastX, y: lastY, color: strokeColor, size: currentSize });
-}
-
-function handleMouseMove(e) {
-    if (!isDrawing || !canDraw()) return;
-    e.preventDefault();
-    
-    const pos = getPos(e);
-    const x = pos.x, y = pos.y;
-    
-    const dist = Math.hypot(x - lastX, y - lastY);
-    if (dist < 1.5) return;
-    
-    ctx.lineWidth   = currentSize;
-    ctx.strokeStyle = (currentTool === 'eraser') ? '#ffffff' : currentColor;
-    ctx.lineCap     = 'round';
-    ctx.lineJoin    = 'round';
-    
     ctx.beginPath();
     ctx.moveTo(lastX, lastY);
     ctx.lineTo(x, y);
     ctx.stroke();
-    
-    if (currentStroke) currentStroke.points.push({ x, y });
-    
-    sendDrawData('draw', { x, y, lx: lastX, ly: lastY });
-    
+
+    if (activeStroke) activeStroke.points.push({ x, y });
+
+    // Sync segment — include all data so receiver doesn't need extra state
+    firebasePushDraw({
+        type:  'seg',
+        lx:    lastX,
+        ly:    lastY,
+        x,
+        y,
+        color: strokeColor,
+        size:  currentSize,
+    });
+
     lastX = x;
     lastY = y;
 }
 
-function handleMouseUp(e) {
-    if (!isDrawing) return;
-    isDrawing = false;
-    
-    if (currentStroke && currentStroke.points.length > 0) {
-        drawingHistory.push(currentStroke);
-        if (drawingHistory.length > 60) drawingHistory.shift();
+// ── POINTER UP ───────────────────────────────────────────────────
+function onMouseUp(e) {
+    if (!isPointerDown) return;
+    isPointerDown = false;
+
+    if (activeStroke && activeStroke.points.length > 0) {
+        drawHistory.push(activeStroke);
+        if (drawHistory.length > 100) drawHistory.shift(); // cap memory
     }
-    currentStroke = null;
-    sendDrawData('end');
+    activeStroke = null;
+
+    firebasePushDraw({ type: 'end' });
 }
 
-function handleTouchStart(e) {
-    e.preventDefault();
-    if (e.touches.length > 0) handleMouseDown(e);
-}
-
-function handleTouchMove(e) {
-    e.preventDefault();
-    if (e.touches.length > 0) handleMouseMove(e);
-}
-
-function handleTouchEnd(e) {
-    e.preventDefault();
-    handleMouseUp(e);
-}
-
-// ==========================================
-// FLOOD FILL
-// ==========================================
-
-function floodFill(startX, startY, fillColor) {
+// ================================================================
+// FLOOD FILL (works on physical pixel buffer, accepts CSS coords)
+// ================================================================
+function floodFill(cssPX, cssPY, fillHex) {
     if (!ctx || !canvas) return;
-    
-    // Work on internal pixel coordinates (DPR-aware)
-    const dpr    = canvasDPR;
-    const pxX    = Math.round(startX * dpr);
-    const pxY    = Math.round(startY * dpr);
-    const width  = canvas.width;
-    const height = canvas.height;
-    
-    const imageData   = ctx.getImageData(0, 0, width, height);
-    const data        = imageData.data;
-    const targetColor = getPixelColor(data, pxX, pxY, width);
-    const fillRgb     = hexToRgb(fillColor);
-    
-    if (colorsMatch(targetColor, fillRgb)) return;
-    
-    const stack   = [[pxX, pxY]];
-    const visited = new Uint8Array(width * height);
-    
+
+    // Convert CSS → physical pixel coords
+    const physX = Math.round(cssPX * canvasDPR);
+    const physY = Math.round(cssPY * canvasDPR);
+    const W     = canvas.width;
+    const H     = canvas.height;
+
+    const imageData = ctx.getImageData(0, 0, W, H);
+    const data      = imageData.data;
+    const target    = pixelAt(data, physX, physY, W);
+    const fill      = hexToRgbObj(fillHex);
+
+    if (rgbEqual(target, fill)) return;
+
+    const visited = new Uint8Array(W * H);
+    const stack   = [physX + physY * W];
+
     while (stack.length > 0) {
-        const [x, y] = stack.pop();
-        if (x < 0 || x >= width || y < 0 || y >= height) continue;
-        
-        const idx = y * width + x;
+        const idx = stack.pop();
         if (visited[idx]) continue;
         visited[idx] = 1;
-        
-        const currentColor = getPixelColor(data, x, y, width);
-        if (!colorsMatch(currentColor, targetColor)) continue;
-        
-        setPixelColor(data, x, y, width, fillRgb);
-        
-        stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+
+        const px = idx % W;
+        const py = (idx - px) / W;
+
+        if (px < 0 || px >= W || py < 0 || py >= H) continue;
+
+        const c = pixelAt(data, px, py, W);
+        if (!rgbClose(c, target, 38)) continue;
+
+        setPixel(data, px, py, W, fill);
+
+        if (px + 1 < W) stack.push(idx + 1);
+        if (px - 1 >= 0) stack.push(idx - 1);
+        if (py + 1 < H)  stack.push(idx + W);
+        if (py - 1 >= 0) stack.push(idx - W);
     }
-    
+
     ctx.putImageData(imageData, 0, 0);
 }
 
-function getPixelColor(data, x, y, width) {
-    const i = (y * width + x) * 4;
-    return { r: data[i], g: data[i+1], b: data[i+2], a: data[i+3] };
+function pixelAt(data, x, y, W) {
+    const i = (y * W + x) * 4;
+    return { r: data[i], g: data[i+1], b: data[i+2] };
 }
 
-function setPixelColor(data, x, y, width, color) {
-    const i = (y * width + x) * 4;
-    data[i]   = color.r;
-    data[i+1] = color.g;
-    data[i+2] = color.b;
+function setPixel(data, x, y, W, c) {
+    const i = (y * W + x) * 4;
+    data[i]   = c.r;
+    data[i+1] = c.g;
+    data[i+2] = c.b;
     data[i+3] = 255;
 }
 
-function colorsMatch(c1, c2, tolerance = 32) {
-    return Math.abs(c1.r - c2.r) <= tolerance &&
-           Math.abs(c1.g - c2.g) <= tolerance &&
-           Math.abs(c1.b - c2.b) <= tolerance;
+function rgbClose(a, b, tol) {
+    return Math.abs(a.r - b.r) <= tol &&
+           Math.abs(a.g - b.g) <= tol &&
+           Math.abs(a.b - b.b) <= tol;
 }
 
-function hexToRgb(hex) {
-    const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return r ? { r: parseInt(r[1],16), g: parseInt(r[2],16), b: parseInt(r[3],16) } : { r:0, g:0, b:0 };
+function rgbEqual(a, b) {
+    return a.r === b.r && a.g === b.g && a.b === b.b;
 }
 
-// ==========================================
-// UNDO & REDRAW
-// ==========================================
-
-function undo() {
-    if (!canDraw() || drawingHistory.length === 0) return;
-    drawingHistory.pop();
-    redraw();
-    sendDrawData('undo');
+function hexToRgbObj(hex) {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : { r:0, g:0, b:0 };
 }
 
-function redraw() {
-    const css = getCSSSize();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, css.w, css.h);
-    
-    drawingHistory.forEach(stroke => {
-        if (stroke.type === 'stroke') {
+// ================================================================
+// UNDO / REDRAW
+// ================================================================
+
+function undoLocal() {
+    if (drawHistory.length === 0) return false;
+    drawHistory.pop();
+    redrawFromHistory();
+    return true;
+}
+
+function redrawFromHistory() {
+    if (!ctx) return;
+    fillWhite();
+    ctx.lineCap  = 'round';
+    ctx.lineJoin = 'round';
+
+    for (const entry of drawHistory) {
+        if (entry.type === 'stroke') {
+            if (entry.points.length === 0) continue;
+            ctx.lineWidth   = entry.size;
+            ctx.strokeStyle = entry.color;
             ctx.lineCap     = 'round';
             ctx.lineJoin    = 'round';
-            ctx.lineWidth   = stroke.size;
-            ctx.strokeStyle = stroke.color;
-            ctx.beginPath();
-            if (stroke.points.length > 0) {
-                ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-                for (let i = 1; i < stroke.points.length; i++) {
-                    ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+
+            // Draw dot for single-point strokes
+            if (entry.points.length === 1) {
+                ctx.beginPath();
+                ctx.arc(entry.points[0].x, entry.points[0].y, entry.size / 2, 0, Math.PI * 2);
+                ctx.fillStyle = entry.color;
+                ctx.fill();
+            } else {
+                ctx.beginPath();
+                ctx.moveTo(entry.points[0].x, entry.points[0].y);
+                for (let i = 1; i < entry.points.length; i++) {
+                    ctx.lineTo(entry.points[i].x, entry.points[i].y);
                 }
+                ctx.stroke();
             }
-            ctx.stroke();
-        } else if (stroke.type === 'fill') {
-            floodFill(stroke.x, stroke.y, stroke.color);
+        } else if (entry.type === 'fill') {
+            floodFill(entry.x, entry.y, entry.color);
+        }
+    }
+}
+
+function undoAndSync() {
+    if (!canDraw()) return;
+    if (!undoLocal()) return;
+
+    // Push undo notification so other clients know to wait for snapshot
+    firebasePushDraw({ type: 'undo' });
+
+    // Immediately publish the full current history as a snapshot
+    // so all other clients can redraw to exactly the same state
+    firebasePushDraw({
+        type:    'snapshot',
+        history: drawHistory,
+    });
+}
+
+function clearCanvasLocal() {
+    drawHistory  = [];
+    activeStroke = null;
+    if (ctx) fillWhite();
+}
+
+function clearCanvasAndSync() {
+    if (!canDraw()) return;
+    clearCanvasLocal();
+    firebasePushDraw({ type: 'clear' });
+}
+
+// ================================================================
+// FIREBASE DRAWING SYNC
+// ================================================================
+
+function firebasePushDraw(payload) {
+    if (!drawRef || !GS.isDrawer) return;
+    drawRef.push({
+        ...payload,
+        pid: GS.playerId,
+        ts:  firebase.database.ServerValue.TIMESTAMP,
+    });
+}
+
+// Called once per round to start listening for remote drawing events
+function startListeningDraw() {
+    if (!drawRef) return;
+    drawRef.off(); // Remove old listeners
+
+    drawRef.on('child_added', snap => {
+        const d = snap.val();
+        if (!d || d.pid === GS.playerId) return; // Ignore own events
+
+        switch (d.type) {
+
+            case 'start':
+                // Draw start dot
+                if (ctx) {
+                    ctx.beginPath();
+                    ctx.arc(d.x, d.y, d.size / 2, 0, Math.PI * 2);
+                    ctx.fillStyle = d.color;
+                    ctx.fill();
+                }
+                break;
+
+            case 'seg':
+                // Draw a line segment — data is self-contained
+                if (ctx) {
+                    ctx.lineWidth   = d.size;
+                    ctx.strokeStyle = d.color;
+                    ctx.lineCap     = 'round';
+                    ctx.lineJoin    = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(d.lx, d.ly);
+                    ctx.lineTo(d.x, d.y);
+                    ctx.stroke();
+                }
+                break;
+
+            case 'end':
+                // Segment ended — nothing to do locally
+                break;
+
+            case 'fill':
+                floodFill(d.x, d.y, d.color);
+                break;
+
+            case 'clear':
+                clearCanvasLocal();
+                break;
+
+            case 'undo':
+                // Undo event is informational — the snapshot that follows
+                // will update us. If we receive undo without a snapshot
+                // within 500ms, pop our own history as a fallback.
+                break;
+
+            case 'snapshot':
+                // Authoritative redraw from drawer's history
+                if (Array.isArray(d.history)) {
+                    drawHistory = d.history;
+                    redrawFromHistory();
+                }
+                break;
+
+            default:
+                break;
         }
     });
 }
 
-function clearCanvas() {
-    if (!ctx || !canvas) return;
-    const css = getCSSSize();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, css.w, css.h);
-    drawingHistory = [];
-}
+// ================================================================
+// TOOLBAR UI
+// ================================================================
 
-function clearCanvasAndNotify() {
-    clearCanvas();
-    if (drawingRef) {
-        drawingRef.push({
-            type: 'clear',
-            player: gameState.playerId,
-            time: firebase.database.ServerValue.TIMESTAMP
-        });
-    }
-}
-
-// ==========================================
-// TOOLBAR
-// ==========================================
-
-function initColorPicker() {
-    const grid    = document.getElementById('colorGrid');
-    const preview = document.getElementById('colorPreview');
+function buildColorPicker() {
+    const grid    = el('colorGrid');
+    const colorDot = el('colorDot');
     if (!grid) return;
-    
+
     grid.innerHTML = '';
-    colors.forEach((color, i) => {
-        const div = document.createElement('div');
-        div.className = 'color-option' + (i === 0 ? ' selected' : '');
-        div.style.background = color;
-        div.addEventListener('click', () => {
-            document.querySelectorAll('.color-option').forEach(c => c.classList.remove('selected'));
-            div.classList.add('selected');
+    COLOR_PALETTE.forEach((color, idx) => {
+        const swatch = document.createElement('div');
+        swatch.className = 'color-swatch' + (idx === 0 ? ' selected' : '');
+        swatch.style.background = color;
+        swatch.title = color;
+
+        swatch.addEventListener('click', () => {
+            document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+            swatch.classList.add('selected');
             currentColor = color;
             currentTool  = 'brush';
-            if (preview) preview.style.background = color;
-            updateTools();
+            if (colorDot) colorDot.style.background = color;
+            updateActiveToolButton();
             closePopups();
         });
-        grid.appendChild(div);
+        grid.appendChild(swatch);
     });
-    
-    if (preview) preview.style.background = currentColor;
+
+    if (colorDot) colorDot.style.background = currentColor;
 }
 
-function initSizePicker() {
-    const container = document.getElementById('sizeOptions');
-    if (!container) return;
-    container.innerHTML = '';
-    brushSizes.forEach((brush, i) => {
-        const div = document.createElement('div');
-        div.className = 'size-option' + (i === 1 ? ' selected' : '');
-        div.innerHTML = `<div style="width:40px;height:${brush.size}px;background:#333;border-radius:3px"></div><span style="font-size:11px">${brush.label}</span>`;
-        div.addEventListener('click', () => {
-            document.querySelectorAll('.size-option').forEach(s => s.classList.remove('selected'));
-            div.classList.add('selected');
-            currentSize = brush.size;
+function buildSizePicker() {
+    const list = el('sizeOptionsList');
+    if (!list) return;
+
+    list.innerHTML = '';
+    BRUSH_SIZES.forEach((s, idx) => {
+        const item = document.createElement('div');
+        item.className = 'size-option-item' + (idx === 1 ? ' selected' : '');
+
+        const dot = document.createElement('div');
+        dot.className = 'size-preview-dot';
+        // Cap visual dot size for the UI
+        const vizSize = Math.min(s.px, 24);
+        dot.style.width  = vizSize + 'px';
+        dot.style.height = vizSize + 'px';
+
+        const label = document.createElement('span');
+        label.className   = 'size-option-label';
+        label.textContent = s.label + ' (' + s.px + 'px)';
+
+        item.appendChild(dot);
+        item.appendChild(label);
+
+        item.addEventListener('click', () => {
+            document.querySelectorAll('.size-option-item').forEach(i => i.classList.remove('selected'));
+            item.classList.add('selected');
+            currentSize = s.px;
             closePopups();
         });
-        container.appendChild(div);
+
+        list.appendChild(item);
     });
 }
 
-function initToolbar() {
-    const colorBtn  = document.getElementById('colorBtn');
-    const sizeBtn   = document.getElementById('sizeBtn');
-    const brushBtn  = document.getElementById('brushBtn');
-    const eraserBtn = document.getElementById('eraserBtn');
-    const bucketBtn = document.getElementById('bucketBtn');
-    const undoBtn   = document.getElementById('undoBtn');
-    const clearBtn  = document.getElementById('clearBtn');
-    
-    if (colorBtn)  colorBtn.addEventListener('click',  () => togglePopup('colorPopup'));
-    if (sizeBtn)   sizeBtn.addEventListener('click',   () => togglePopup('sizePopup'));
-    if (brushBtn)  brushBtn.addEventListener('click',  () => { currentTool = 'brush';  updateTools(); });
-    if (eraserBtn) eraserBtn.addEventListener('click', () => { currentTool = 'eraser'; updateTools(); });
-    if (bucketBtn) bucketBtn.addEventListener('click', () => { currentTool = 'bucket'; updateTools(); });
-    if (undoBtn)   undoBtn.addEventListener('click',   undo);
-    if (clearBtn)  clearBtn.addEventListener('click',  clearCanvasAndNotify);
-    
-    updateTools();
+function bindToolbarButtons() {
+    const btn = id => el(id);
+
+    btn('colorBtn')  && btn('colorBtn').addEventListener('click',  () => togglePopup('colorPopup'));
+    btn('sizeBtn')   && btn('sizeBtn').addEventListener('click',   () => togglePopup('sizePopup'));
+    btn('brushBtn')  && btn('brushBtn').addEventListener('click',  () => setTool('brush'));
+    btn('eraserBtn') && btn('eraserBtn').addEventListener('click', () => setTool('eraser'));
+    btn('bucketBtn') && btn('bucketBtn').addEventListener('click', () => setTool('bucket'));
+    btn('undoBtn')   && btn('undoBtn').addEventListener('click',   undoAndSync);
+    btn('clearBtn')  && btn('clearBtn').addEventListener('click',  clearCanvasAndSync);
+
+    updateActiveToolButton();
 }
 
-function updateTools() {
-    document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-    const ids = { brush: 'brushBtn', eraser: 'eraserBtn', bucket: 'bucketBtn' };
-    const btn = document.getElementById(ids[currentTool]);
-    if (btn) btn.classList.add('active');
+function setTool(tool) {
+    currentTool = tool;
+    updateActiveToolButton();
+}
+
+function updateActiveToolButton() {
+    document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('tool-active'));
+    const map = { brush: 'brushBtn', eraser: 'eraserBtn', bucket: 'bucketBtn' };
+    const target = el(map[currentTool]);
+    if (target) target.classList.add('tool-active');
 }
 
 function togglePopup(id) {
-    const popup   = document.getElementById(id);
-    const overlay = document.getElementById('popupOverlay');
-    if (!popup || !overlay) return;
-    
-    const isOpen = popup.classList.contains('show');
-    document.querySelectorAll('.popup').forEach(p => p.classList.remove('show'));
-    overlay.classList.remove('show');
-    
-    if (!isOpen) {
+    const popup    = el(id);
+    const backdrop = el('popupBackdrop');
+    if (!popup) return;
+    const wasOpen = popup.classList.contains('show');
+    closePopups();
+    if (!wasOpen) {
         popup.classList.add('show');
-        overlay.classList.add('show');
+        if (backdrop) backdrop.classList.add('show');
     }
 }
 
 function closePopups() {
     document.querySelectorAll('.popup').forEach(p => p.classList.remove('show'));
-    const overlay = document.getElementById('popupOverlay');
-    if (overlay) overlay.classList.remove('show');
+    const backdrop = el('popupBackdrop');
+    if (backdrop) backdrop.classList.remove('show');
 }
 
-// ==========================================
-// FIREBASE DRAWING SYNC
-// ==========================================
-
-function sendDrawData(type, data) {
-    if (!drawingRef || !gameState.isDrawer) return;
-    const payload = {
-        type,
-        player: gameState.playerId,
-        time: firebase.database.ServerValue.TIMESTAMP
-    };
-    if (data) Object.assign(payload, data);
-    drawingRef.push(payload);
-}
-
-function listenDrawing() {
-    if (!drawingRef) return;
-    
-    drawingRef.on('child_added', (snap) => {
-        const data = snap.val();
-        if (!data || data.player === gameState.playerId) return;
-        
-        if (data.type === 'start') {
-            ctx.lineCap     = 'round';
-            ctx.lineJoin    = 'round';
-            ctx.lineWidth   = data.size || 4;
-            ctx.strokeStyle = data.color || '#000';
-            ctx.beginPath();
-            ctx.moveTo(data.x, data.y);
-        } else if (data.type === 'draw') {
-            ctx.lineTo(data.x, data.y);
-            ctx.stroke();
-        } else if (data.type === 'fill') {
-            floodFill(data.x, data.y, data.color);
-        } else if (data.type === 'clear') {
-            clearCanvas();
-        }
-    });
-}
-
-// ==========================================
-// GAME LOGIC
-// ==========================================
+// ================================================================
+// JOIN / CREATE GAME
+// ================================================================
 
 function joinGame() {
-    const nameInput = document.getElementById('playerName');
-    const codeInput = document.getElementById('roomCode');
-    
-    const name = (nameInput && nameInput.value.trim()) || ('Player' + Math.floor(Math.random() * 1000));
-    const code = codeInput ? codeInput.value.trim().toUpperCase() : '';
-    
-    gameState.playerName = name;
-    gameState.joinTime   = Date.now();
-    
-    const loading = document.getElementById('loadingOverlay');
-    if (loading) loading.classList.add('show');
-    
-    if (!code) {
-        createRoom(generateCode());
+    const nameEl = el('playerName');
+    const codeEl = el('roomCode');
+
+    const name = (nameEl && nameEl.value.trim()) || ('Player' + Math.floor(Math.random() * 999 + 1));
+    const code = (codeEl && codeEl.value.trim().toUpperCase()) || '';
+
+    if (!name) {
+        showToast('Please enter your name!', 'error');
+        return;
+    }
+
+    GS.playerName = name;
+    GS.playerId   = 'p_' + Date.now() + '_' + Math.floor(Math.random() * 9999);
+    GS.joinTime   = Date.now();
+
+    setLoadingVisible(true);
+
+    if (code) {
+        joinExistingRoom(code);
     } else {
-        joinRoom(code);
+        createNewRoom(generateRoomCode());
     }
 }
 
-function generateCode() {
+function generateRoomCode() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    let code = '';
-    for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
-    return code;
+    return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
-function createRoom(code) {
-    gameState.roomCode = code;
-    gameState.playerId = 'p_' + Date.now();
-    
+function createNewRoom(code) {
+    GS.roomCode = code;
+
     roomRef    = database.ref('rooms/' + code);
     playersRef = roomRef.child('players');
     chatRef    = roomRef.child('chat');
-    drawingRef = roomRef.child('drawing');
+    drawRef    = roomRef.child('draw');
     gameRef    = roomRef.child('game');
-    
+
     roomRef.set({
-        created: Date.now(),
-        state: 'waiting',
-        round: 1,
-        maxRounds: 10,
-        currentDrawerIndex: 0,
-        drawer: null,
-        word: null,
-        allGuessed: false,
-        playerList: []
+        created: firebase.database.ServerValue.TIMESTAMP,
     }).then(() => {
-        addPlayer();
+        addSelfToRoom();
     }).catch(err => {
-        showToast('Error: ' + err.message, 'error');
-        const loading = document.getElementById('loadingOverlay');
-        if (loading) loading.classList.remove('show');
+        showToast('Could not create room: ' + err.message, 'error');
+        setLoadingVisible(false);
     });
 }
 
-function joinRoom(code) {
-    gameState.roomCode = code;
-    gameState.playerId = 'p_' + Date.now();
-    
-    roomRef = database.ref('rooms/' + code);
-    
-    roomRef.once('value', (snap) => {
+function joinExistingRoom(code) {
+    GS.roomCode = code;
+
+    roomRef    = database.ref('rooms/' + code);
+    playersRef = roomRef.child('players');
+    chatRef    = roomRef.child('chat');
+    drawRef    = roomRef.child('draw');
+    gameRef    = roomRef.child('game');
+
+    roomRef.once('value', snap => {
         if (!snap.exists()) {
-            showToast('Room not found!', 'error');
-            const loading = document.getElementById('loadingOverlay');
-            if (loading) loading.classList.remove('show');
+            showToast('Room "' + code + '" not found!', 'error');
+            setLoadingVisible(false);
             return;
         }
-        
-        const roomData = snap.val();
-        playersRef = roomRef.child('players');
-        chatRef    = roomRef.child('chat');
-        drawingRef = roomRef.child('drawing');
-        gameRef    = roomRef.child('game');
-        
-        if (roomData.game) {
-            gameState.currentState = roomData.game.state || 'waiting';
-        }
-        
-        addPlayer(roomData);
-    }, (err) => {
-        showToast('Error: ' + err.message, 'error');
-        const loading = document.getElementById('loadingOverlay');
-        if (loading) loading.classList.remove('show');
+        addSelfToRoom();
+    }, err => {
+        showToast('Connection error: ' + err.message, 'error');
+        setLoadingVisible(false);
     });
 }
 
-function addPlayer(existingRoomData) {
-    playersRef.child(gameState.playerId).set({
-        name: gameState.playerName,
-        score: 0,
-        joined: Date.now(),
-        hasGuessed: false
+function addSelfToRoom() {
+    playersRef.child(GS.playerId).set({
+        name:       GS.playerName,
+        score:      0,
+        hasGuessed: false,
+        joinedAt:   firebase.database.ServerValue.TIMESTAMP,
     }).then(() => {
-        playersRef.child(gameState.playerId).onDisconnect().remove();
-        
-        if (existingRoomData && existingRoomData.game) {
-            const currentList = existingRoomData.game.playerList || [];
-            if (!currentList.includes(gameState.playerId)) {
-                gameRef.update({ playerList: [...currentList, gameState.playerId] });
+        // Auto-remove self from Firebase on disconnect
+        playersRef.child(GS.playerId).onDisconnect().remove();
+        setupFirebaseListeners();
+        showGameScreen();
+    }).catch(err => {
+        showToast('Could not join room: ' + err.message, 'error');
+        setLoadingVisible(false);
+    });
+}
+
+// ================================================================
+// FIREBASE LISTENERS
+// ================================================================
+
+function setupFirebaseListeners() {
+    // ── Players ────────────────────────────────────────────────
+    playersRef.on('value', snap => {
+        GS.players = snap.val() || {};
+        renderPlayerList();
+
+        const playerIds = Object.keys(GS.players);
+        const isFirst   = playerIds.length > 0 && playerIds[0] === GS.playerId;
+
+        if (isFirst && playerIds.length >= 2 && !GS.gameStarted) {
+            tryStartGame();
+        }
+
+        // Show/hide lobby overlay
+        const lobbyEl = el('lobbyOverlay');
+        const lobbyCode = el('lobbyRoomCode');
+        if (lobbyEl) {
+            if (playerIds.length < 2) {
+                lobbyEl.classList.add('show');
+                if (lobbyCode) lobbyCode.textContent = GS.roomCode;
+            } else {
+                lobbyEl.classList.remove('show');
             }
         }
-        
-        setupListeners();
-        showGame(gameState.roomCode);
-    }).catch(err => {
-        showToast('Error: ' + err.message, 'error');
-        const loading = document.getElementById('loadingOverlay');
-        if (loading) loading.classList.remove('show');
     });
-}
 
-function setupListeners() {
-    playersRef.on('value', (snap) => {
-        gameState.players = snap.val() || {};
-        updatePlayerList();
-        
-        const playerIds   = Object.keys(gameState.players);
-        const isFirstPlayer = playerIds.length > 0 && playerIds[0] === gameState.playerId;
-        
-        if (isFirstPlayer && playerIds.length >= 2 && !gameState.gameStarted) {
-            checkStartGame();
-        }
-    });
-    
-    chatRef.limitToLast(100).on('child_added', (snap) => {
+    // ── Chat (only load messages after we joined) ───────────────
+    chatRef.limitToLast(120).on('child_added', snap => {
         const msg = snap.val();
-        if (msg && msg.time >= gameState.joinTime) {
-            displayMessage(msg);
+        if (msg && msg.ts >= GS.joinTime) {
+            renderChatMessage(msg);
         }
     });
-    
-    gameRef.on('value', (snap) => {
-        const game = snap.val();
-        if (game) {
-            handleGameChange(game);
-            if (game.state !== 'waiting') gameState.gameStarted = true;
-        }
+
+    // ── Game state ──────────────────────────────────────────────
+    gameRef.on('value', snap => {
+        const g = snap.val();
+        if (g) handleGameStateChange(g);
     });
-    
-    listenDrawing();
+
+    // ── Drawing ─────────────────────────────────────────────────
+    startListeningDraw();
 }
 
-function checkStartGame() {
-    if (gameState.gameStarted) return;
-    
-    const playerIds = Object.keys(gameState.players);
+// ================================================================
+// START GAME
+// ================================================================
+
+function tryStartGame() {
+    if (GS.gameStarted) return;
+
+    const playerIds = Object.keys(GS.players);
     if (playerIds.length < 2) return;
-    
-    gameRef.update({
-        state: 'choosing',
-        playerList: playerIds,
-        currentDrawerIndex: 0,
-        drawer: playerIds[0],
-        round: 1,
-        timer: 80,
-        word: null,
-        allGuessed: false
-    }).then(() => {
-        gameState.gameStarted = true;
+
+    // Check if a game is already running
+    gameRef.once('value', snap => {
+        const existing = snap.val();
+        if (existing && existing.state && existing.state !== 'waiting') {
+            GS.gameStarted = true;
+            return;
+        }
+        GS.gameStarted = true;
+        gameRef.set({
+            state:              'choosing',
+            round:              1,
+            maxRounds:          10,
+            playerList:         playerIds,
+            currentDrawerIndex: 0,
+            drawer:             playerIds[0],
+            word:               null,
+            timer:              80,
+            startTime:          null,
+            allGuessed:         false,
+        });
     });
 }
 
-function handleGameChange(game) {
-    const prevState = gameState.currentState;
-    const wasDrawer = gameState.isDrawer;
-    
-    gameState.currentState = game.state;
-    gameState.lastState    = game.state;
-    gameState.game         = game;
-    gameState.round        = game.round || 1;
-    gameState.isDrawer     = (game.drawer === gameState.playerId);
-    gameState.currentWord  = game.word;
-    gameState.isGameActive = (game.state === 'drawing');
-    
-    if (game.state === 'drawing' && prevState === 'choosing') {
-        clearCanvas();
-        drawingHistory = [];
-        gameState.hasGuessedWord = false;
+// ================================================================
+// GAME STATE MACHINE
+// ================================================================
+
+function handleGameStateChange(g) {
+    const prevState = GS.currentState;
+    const wasDrawer = GS.isDrawer;
+
+    GS.game         = g;
+    GS.currentState = g.state || 'waiting';
+    GS.isDrawer     = (g.drawer === GS.playerId);
+    GS.currentWord  = g.word || null;
+    GS.round        = g.round || 1;
+    GS.maxRounds    = g.maxRounds || 10;
+
+    if (g.state !== 'waiting') GS.gameStarted = true;
+
+    // If a new drawing round started, clear the canvas
+    if (g.state === 'drawing' && prevState !== 'drawing') {
+        clearCanvasLocal();
+        drawRef.set(null).then(() => {
+            startListeningDraw();
+        });
+        GS.hasGuessedCorrectly = false;
+        GS.endRoundLock        = false;
     }
-    
-    // Update top bar
-    const roundInfo    = document.getElementById('roundInfo');
-    const timerDisplay = document.getElementById('timerDisplay');
-    const wordDisplay  = document.getElementById('wordDisplay');
-    
-    if (roundInfo)    roundInfo.textContent    = `Round ${gameState.round} of ${game.maxRounds || 10}`;
-    if (timerDisplay) timerDisplay.textContent = game.timer || 80;
-    
-    if (wordDisplay) {
-        if (!game.word) {
-            wordDisplay.textContent = 'Waiting...';
-            wordDisplay.classList.remove('revealed');
-        } else if (gameState.isDrawer || gameState.hasGuessedWord) {
-            wordDisplay.textContent = game.word.toUpperCase().split('').join(' ');
-            wordDisplay.classList.add('revealed');
-        } else {
-            wordDisplay.textContent = game.word.split('').map(c => c === ' ' ? '   ' : '_').join(' ');
-            wordDisplay.classList.remove('revealed');
-        }
-    }
-    
-    // Handle overlays
-    const waitingOverlay = document.getElementById('waitingOverlay');
-    const roundOverlay   = document.getElementById('roundOverlay');
-    const wordModal      = document.getElementById('wordModal');
-    
-    switch (game.state) {
+
+    updateTopBar(g);
+    updateDrawerToolbar();
+
+    // ── Hide all overlays first ──
+    const waitEl      = el('waitingOverlay');
+    const roundEndEl  = el('roundEndOverlay');
+    const wordModal   = el('wordModal');
+
+    if (waitEl)     waitEl.classList.remove('show');
+    if (roundEndEl) roundEndEl.classList.remove('show');
+
+    // ── Per-state handling ──
+    switch (g.state) {
+
         case 'waiting':
-            if (waitingOverlay) waitingOverlay.classList.remove('show');
-            if (roundOverlay)   roundOverlay.classList.remove('show');
+            if (wordModal) wordModal.classList.remove('show');
             break;
-            
+
         case 'choosing':
-            if (gameState.isDrawer) {
-                if (waitingOverlay) waitingOverlay.classList.remove('show');
+            if (wordModal) wordModal.classList.remove('show');
+            if (GS.isDrawer) {
+                // Only show word modal if not already showing
                 if (!wordModal || !wordModal.classList.contains('show')) {
-                    setTimeout(showWordSelect, 100);
+                    setTimeout(showWordSelectionModal, 80);
                 }
             } else {
-                if (waitingOverlay) waitingOverlay.classList.add('show');
-                if (wordModal) wordModal.classList.remove('show');
+                if (waitEl) waitEl.classList.add('show');
             }
-            if (roundOverlay) roundOverlay.classList.remove('show');
             break;
-            
+
         case 'drawing':
-            if (waitingOverlay) waitingOverlay.classList.remove('show');
-            if (roundOverlay)   roundOverlay.classList.remove('show');
-            if (wordModal)      wordModal.classList.remove('show');
-            if (gameState.isDrawer && !timerInterval) startTimer();
+            if (wordModal) wordModal.classList.remove('show');
+            if (waitEl)    waitEl.classList.remove('show');
+            // Drawer is responsible for running the countdown timer
+            if (GS.isDrawer && !timerInterval) {
+                startCountdownTimer(g.startTime || Date.now(), g.maxTime || 80);
+            }
             break;
-            
+
         case 'round_end':
-            if (waitingOverlay) waitingOverlay.classList.remove('show');
-            showRoundEnd(game.word);
+            if (wordModal) wordModal.classList.remove('show');
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+            showRoundEndOverlay(g.word);
             break;
-            
+
         case 'game_over':
-            if (waitingOverlay) waitingOverlay.classList.remove('show');
-            if (roundOverlay)   roundOverlay.classList.remove('show');
-            showGameOver();
+            if (wordModal)   wordModal.classList.remove('show');
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+            showGameOverModal();
             break;
     }
-    
-    // Drawer badge / toolbar
-    if (gameState.isDrawer !== wasDrawer) {
-        const badge   = document.getElementById('drawerBadge');
-        const toolbar = document.getElementById('toolbarContainer');
-        
-        if (gameState.isDrawer) {
-            if (badge)   badge.classList.add('show');
-            if (toolbar) toolbar.classList.add('show');
+}
+
+// ================================================================
+// TOP BAR UPDATE
+// ================================================================
+
+function updateTopBar(g) {
+    const roundEl  = el('roundInfo');
+    const timerEl  = el('timerDisplay');
+    const wordEl   = el('wordDisplay');
+
+    if (roundEl)  roundEl.textContent = 'Round ' + (g.round || 1) + '/' + (g.maxRounds || 10);
+    if (timerEl)  timerEl.textContent = (g.timer !== undefined && g.timer !== null) ? g.timer : 80;
+
+    // Timer color warning
+    if (timerEl) {
+        const t = parseInt(timerEl.textContent, 10);
+        if (t <= 15) timerEl.classList.add('warning');
+        else         timerEl.classList.remove('warning');
+    }
+
+    if (wordEl) {
+        if (!g.word) {
+            wordEl.textContent = 'Waiting...';
+            wordEl.classList.remove('revealed');
+        } else if (GS.isDrawer || GS.hasGuessedCorrectly || g.state === 'round_end' || g.state === 'game_over') {
+            // Show full word with spaces between letters
+            wordEl.textContent = g.word.toUpperCase().split('').join(' ');
+            wordEl.classList.add('revealed');
         } else {
-            if (badge)   badge.classList.remove('show');
-            if (toolbar) toolbar.classList.remove('show');
-            if (wordModal) wordModal.classList.remove('show');
+            // Show blanks — preserve spaces in multi-word answers
+            const blanks = g.word.split('').map(ch => ch === ' ' ? '  ' : '_').join(' ');
+            wordEl.textContent = blanks;
+            wordEl.classList.remove('revealed');
         }
     }
 }
 
-function showWordSelect() {
-    const modal = document.getElementById('wordModal');
-    if (!modal || modal.classList.contains('show')) return;
-    
-    const options   = WordBank.getWordOptions();
-    const container = document.getElementById('wordOptions');
-    if (!container) return;
-    
-    container.innerHTML = '';
+// ================================================================
+// DRAWER TOOLBAR VISIBILITY
+// ================================================================
+
+function updateDrawerToolbar() {
+    const toolbarEl = el('toolbarBar');
+    const badgeEl   = el('drawerBadge');
+    const isDrawing = GS.isDrawer && GS.currentState === 'drawing';
+
+    if (toolbarEl) {
+        if (isDrawing) toolbarEl.classList.add('toolbar-visible');
+        else           toolbarEl.classList.remove('toolbar-visible');
+    }
+
+    if (badgeEl) {
+        if (isDrawing) badgeEl.classList.add('show');
+        else           badgeEl.classList.remove('show');
+    }
+}
+
+// ================================================================
+// WORD SELECTION MODAL
+// ================================================================
+
+function showWordSelectionModal() {
+    const modal  = el('wordModal');
+    const optList = el('wordOptionsList');
+    const timerEl = el('wordModalTimer');
+    if (!modal || !optList) return;
+    if (modal.classList.contains('show')) return; // Already showing
+
+    const options = WordBank.getWordOptions();
+
+    optList.innerHTML = '';
     options.forEach(opt => {
         const btn = document.createElement('button');
-        btn.className = 'word-btn';
-        btn.innerHTML = `${opt.word}<div style="font-size:11px;margin-top:4px;opacity:0.8">${opt.difficulty} • ${opt.points} pts</div>`;
-        btn.addEventListener('click', () => selectWord(opt.word));
-        container.appendChild(btn);
+        btn.className = 'word-option-btn';
+
+        const wordSpan = document.createElement('span');
+        wordSpan.textContent = opt.word;
+
+        const meta = document.createElement('div');
+        meta.className = 'word-option-meta';
+
+        const diff = document.createElement('span');
+        diff.className   = 'word-difficulty-badge';
+        diff.textContent = opt.difficulty;
+
+        const pts = document.createElement('span');
+        pts.className   = 'word-points-badge';
+        pts.textContent = opt.points + ' pts';
+
+        meta.appendChild(diff);
+        meta.appendChild(pts);
+        btn.appendChild(wordSpan);
+        btn.appendChild(meta);
+
+        btn.addEventListener('click', () => onWordSelected(opt.word));
+        optList.appendChild(btn);
     });
-    
+
     modal.classList.add('show');
-    
-    let time = 15;
-    const timerEl = document.getElementById('wordTimer');
-    if (timerEl) timerEl.textContent = time;
-    
-    wordSelectTimer = setInterval(() => {
-        time--;
-        if (timerEl) timerEl.textContent = time;
-        if (time <= 0) {
-            clearInterval(wordSelectTimer);
-            if (modal.classList.contains('show')) selectWord(options[0].word);
-        }
-    }, 1000);
-}
 
-function selectWord(word) {
+    // 15-second countdown
+    let countdown = 15;
+    if (timerEl) timerEl.textContent = countdown;
+
     if (wordSelectTimer) clearInterval(wordSelectTimer);
-    const modal = document.getElementById('wordModal');
-    if (modal) modal.classList.remove('show');
-    
-    clearCanvas();
-    drawingHistory = [];
-    
-    gameRef.update({
-        state: 'drawing',
-        word,
-        timer: 80,
-        startTime: Date.now(),
-        allGuessed: false
-    });
-}
-
-function startTimer() {
-    if (timerInterval) clearInterval(timerInterval);
-    
-    timerInterval = setInterval(() => {
-        gameRef.once('value', (snap) => {
-            const game = snap.val();
-            if (!game || game.state !== 'drawing') {
-                clearInterval(timerInterval);
-                timerInterval = null;
-                return;
+    wordSelectTimer = setInterval(() => {
+        countdown--;
+        if (timerEl) timerEl.textContent = countdown;
+        if (countdown <= 0) {
+            clearInterval(wordSelectTimer);
+            wordSelectTimer = null;
+            // Auto-select first word
+            if (modal.classList.contains('show')) {
+                onWordSelected(options[0].word);
             }
-            if (game.drawer !== gameState.playerId) return;
-            
-            const elapsed   = Math.floor((Date.now() - game.startTime) / 1000);
-            const remaining = Math.max(0, 80 - elapsed);
-            
-            gameRef.update({ timer: remaining });
-            
-            const allPlayers = Object.keys(gameState.players);
-            const guessers   = allPlayers.filter(id => id !== game.drawer);
-            const allCorrect = guessers.length > 0 && guessers.every(id => {
-                const p = gameState.players[id];
-                return p && p.hasGuessed;
-            });
-            
-            if (remaining <= 0 || (game.allGuessed && allCorrect)) {
-                clearInterval(timerInterval);
-                timerInterval = null;
-                endRound();
-            }
-        });
+        }
     }, 1000);
 }
 
-function endRound() {
-    gameRef.once('value', (snap) => {
-        const game = snap.val();
-        if (!game) return;
-        
-        const playerList = game.playerList || Object.keys(gameState.players);
-        let nextIndex = (game.currentDrawerIndex + 1) % playerList.length;
-        let nextRound = game.round;
-        
-        if (nextIndex === 0) nextRound++;
-        
-        if (nextRound > (game.maxRounds || 10)) {
-            gameRef.update({ state: 'game_over' });
-            return;
-        }
-        
-        let attempts = 0;
-        while (attempts < playerList.length && !gameState.players[playerList[nextIndex]]) {
-            nextIndex = (nextIndex + 1) % playerList.length;
-            if (nextIndex === 0) nextRound++;
-            attempts++;
-        }
-        
-        if (nextRound > (game.maxRounds || 10)) {
-            gameRef.update({ state: 'game_over' });
-            return;
-        }
-        
-        const nextDrawer = playerList[nextIndex];
-        const updates    = {};
-        playerList.forEach(pid => {
-            if (gameState.players[pid]) updates['players/' + pid + '/hasGuessed'] = false;
-        });
-        updates['state'] = 'round_end';
-        
-        gameRef.update(updates);
-        
-        setTimeout(() => {
-            gameRef.update({
-                state: 'choosing',
-                round: nextRound,
-                drawer: nextDrawer,
-                currentDrawerIndex: nextIndex,
-                word: null,
-                timer: 80,
-                allGuessed: false
-            });
-        }, 3000);
+function onWordSelected(word) {
+    if (wordSelectTimer) { clearInterval(wordSelectTimer); wordSelectTimer = null; }
+
+    const modal = el('wordModal');
+    if (modal) modal.classList.remove('show');
+
+    clearCanvasLocal();
+    drawRef.set(null); // Wipe old drawing data for new round
+
+    const now = Date.now();
+    gameRef.update({
+        state:      'drawing',
+        word:       word,
+        timer:      80,
+        maxTime:    80,
+        startTime:  now,
+        allGuessed: false,
     });
 }
 
-// ==========================================
-// CHAT
-// ==========================================
+// ================================================================
+// COUNTDOWN TIMER (runs only on drawer's client)
+// ================================================================
+
+function startCountdownTimer(startTimestamp, maxTime) {
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+
+    timerInterval = setInterval(() => {
+        // Stop if we're no longer the drawer or state changed
+        if (!GS.isDrawer || GS.currentState !== 'drawing') {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            return;
+        }
+
+        const elapsed   = Math.floor((Date.now() - startTimestamp) / 1000);
+        const remaining = Math.max(0, maxTime - elapsed);
+
+        // Update timer display in Firebase (all clients read this)
+        gameRef.update({ timer: remaining });
+
+        // Update local display immediately for responsiveness
+        const timerEl = el('timerDisplay');
+        if (timerEl) {
+            timerEl.textContent = remaining;
+            if (remaining <= 15) timerEl.classList.add('warning');
+            else                 timerEl.classList.remove('warning');
+        }
+
+        if (remaining <= 0) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            triggerRoundEnd();
+        } else {
+            // Also check if all players have guessed
+            checkIfAllGuessed();
+        }
+    }, 1000);
+}
+
+// ================================================================
+// ROUND END
+// ================================================================
+
+function triggerRoundEnd() {
+    if (!GS.isDrawer) return;
+    if (GS.endRoundLock) return;
+    GS.endRoundLock = true;
+
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+
+    gameRef.once('value', snap => {
+        const g = snap.val();
+        if (!g) { GS.endRoundLock = false; return; }
+        if (g.state === 'round_end' || g.state === 'game_over') {
+            GS.endRoundLock = false;
+            return;
+        }
+
+        const playerList = g.playerList || Object.keys(GS.players);
+        let   nextIdx    = ((g.currentDrawerIndex || 0) + 1) % playerList.length;
+        let   nextRound  = g.round || 1;
+
+        // Wrapped around = new round
+        if (nextIdx === 0) nextRound++;
+
+        // Skip disconnected players (up to one full loop)
+        let skips = 0;
+        while (skips < playerList.length && !GS.players[playerList[nextIdx]]) {
+            nextIdx = (nextIdx + 1) % playerList.length;
+            if (nextIdx === 0) nextRound++;
+            skips++;
+        }
+
+        // Reset hasGuessed for all players
+        const playerUpdates = {};
+        playerList.forEach(pid => {
+            playerUpdates[pid + '/hasGuessed'] = false;
+        });
+
+        playersRef.update(playerUpdates).then(() => {
+            // Transition to round_end briefly
+            gameRef.update({ state: 'round_end' }).then(() => {
+                if (nextRound > (g.maxRounds || 10)) {
+                    // Game over after showing round end for 3.5s
+                    setTimeout(() => {
+                        gameRef.update({ state: 'game_over' });
+                        GS.endRoundLock = false;
+                    }, 3500);
+                } else {
+                    // Start next choosing phase after 3.5s
+                    setTimeout(() => {
+                        drawRef.set(null); // Clear draw data
+                        gameRef.set({
+                            state:              'choosing',
+                            round:              nextRound,
+                            maxRounds:          g.maxRounds || 10,
+                            playerList:         playerList,
+                            currentDrawerIndex: nextIdx,
+                            drawer:             playerList[nextIdx],
+                            word:               null,
+                            timer:              80,
+                            maxTime:            80,
+                            startTime:          null,
+                            allGuessed:         false,
+                        });
+                        GS.endRoundLock = false;
+                    }, 3500);
+                }
+            });
+        });
+    });
+}
+
+// ================================================================
+// CHAT & GUESS DETECTION
+// ================================================================
 
 function sendMessage() {
-    const input = document.getElementById('chatInput');
+    const input = el('chatInput');
     if (!input) return;
-    
-    const text = input.value.trim();
+
+    const rawText = input.value;
+    const text    = rawText.trim();
     if (!text) return;
-    
+
     input.value = '';
-    
-    if (gameState.isDrawer) {
-        sendChat('drawer_chat', text);
+    input.focus();
+
+    // Drawer can chat but not guess
+    if (GS.isDrawer) {
+        pushChatMessage({ type: 'drawer', text, name: GS.playerName });
         return;
     }
-    
-    const me = gameState.players[gameState.playerId];
+
+    const me = GS.players[GS.playerId];
+
+    // Already guessed correctly — only chat, don't reveal word
     if (me && me.hasGuessed) {
-        sendChat('guesser_chat', text);
+        pushChatMessage({ type: 'guessed', text, name: GS.playerName });
         return;
     }
-    
-    if (gameState.isGameActive && text.toLowerCase() === (gameState.currentWord || '').toLowerCase()) {
-        handleCorrectGuess();
-        return;
+
+    // Only check guess during active drawing phase
+    if (GS.currentState === 'drawing' && GS.currentWord) {
+        const guess   = text.toLowerCase().trim();
+        const answer  = GS.currentWord.toLowerCase().trim();
+
+        if (guess === answer) {
+            handleCorrectGuess(me);
+            return;
+        }
+
+        // Check for close guess (within 1-2 characters via Levenshtein)
+        if (answer.length >= 4 && levenshtein(guess, answer) <= 1) {
+            pushChatMessage({ type: 'close', text, name: GS.playerName });
+            return;
+        }
     }
-    
-    sendChat('guess', text);
+
+    // Normal guess message
+    pushChatMessage({ type: 'guess', text, name: GS.playerName });
 }
 
-function handleCorrectGuess() {
-    const me = gameState.players[gameState.playerId];
-    if (me && me.hasGuessed) return;
-    
-    const points = Math.max(10, Math.floor((gameState.game ? (gameState.game.timer || 80) : 80) / 8) * 10);
-    
-    gameState.hasGuessedWord = true;
-    
-    playersRef.child(gameState.playerId).update({
-        score: (me ? me.score : 0) + points,
-        hasGuessed: true
+function levenshtein(a, b) {
+    if (a === b) return 0;
+    const m = a.length, n = b.length;
+    const dp = [];
+    for (let i = 0; i <= m; i++) { dp[i] = [i]; }
+    for (let j = 0; j <= n; j++) { dp[0][j] = j; }
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            dp[i][j] = a[i-1] === b[j-1]
+                ? dp[i-1][j-1]
+                : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+        }
+    }
+    return dp[m][n];
+}
+
+function handleCorrectGuess(me) {
+    if (!me || me.hasGuessed)         return;
+    if (GS.hasGuessedCorrectly)       return;
+    if (GS.currentState !== 'drawing') return;
+
+    GS.hasGuessedCorrectly = true;
+
+    // Points scale with time remaining
+    const timer    = (GS.game && GS.game.timer !== undefined) ? GS.game.timer : 80;
+    const maxTime  = (GS.game && GS.game.maxTime)             ? GS.game.maxTime : 80;
+    const fraction = Math.max(0, Math.min(1, timer / maxTime));
+    const points   = Math.round(50 + fraction * 100); // 50–150 pts
+
+    // Update score and hasGuessed flag
+    playersRef.child(GS.playerId).update({
+        score:      (me.score || 0) + points,
+        hasGuessed: true,
     });
-    
-    sendChat('correct', `guessed correctly! (+${points})`);
+
+    // Post correct-guess chat event
+    pushChatMessage({
+        type:   'correct',
+        text:   'guessed the word! (+' + points + ' pts)',
+        name:   GS.playerName,
+    });
+
     playSound('correct');
-    
-    const wordDisplay = document.getElementById('wordDisplay');
-    if (wordDisplay && gameState.currentWord) {
-        wordDisplay.textContent = gameState.currentWord.toUpperCase().split('').join(' ');
-        wordDisplay.classList.add('revealed');
+
+    // Reveal word locally for the guesser immediately
+    const wordEl = el('wordDisplay');
+    if (wordEl && GS.currentWord) {
+        wordEl.textContent = GS.currentWord.toUpperCase().split('').join(' ');
+        wordEl.classList.add('revealed');
     }
-    
-    checkAllGuessed();
 }
 
-function checkAllGuessed() {
-    const allPlayers = Object.keys(gameState.players);
-    if (allPlayers.length < 2 || !gameState.game) return;
-    
-    const guessers   = allPlayers.filter(id => id !== gameState.game.drawer);
+function checkIfAllGuessed() {
+    const g = GS.game;
+    if (!g || !GS.isDrawer) return;
+
+    const ids      = Object.keys(GS.players);
+    const guessers = ids.filter(id => id !== g.drawer);
     if (guessers.length === 0) return;
-    
-    const allCorrect = guessers.every(id => {
-        const p = gameState.players[id];
+
+    const allDone = guessers.every(id => {
+        const p = GS.players[id];
         return p && p.hasGuessed;
     });
-    
-    if (allCorrect && !gameState.allGuessed) {
-        const drawer = gameState.players[gameState.game.drawer];
-        if (drawer) {
-            playersRef.child(gameState.game.drawer).update({ score: (drawer.score || 0) + 25 });
+
+    if (allDone && !g.allGuessed) {
+        // Bonus for drawer
+        const drawerPlayer = GS.players[g.drawer];
+        if (drawerPlayer) {
+            playersRef.child(g.drawer).update({
+                score: (drawerPlayer.score || 0) + 30,
+            });
         }
         gameRef.update({ allGuessed: true });
-        clearInterval(timerInterval);
-        timerInterval = null;
-        setTimeout(endRound, 1500);
+
+        // End round shortly after
+        setTimeout(triggerRoundEnd, 1200);
     }
 }
 
-function sendChat(type, text, isClose) {
+// ================================================================
+// CHAT — PUSH & RENDER
+// ================================================================
+
+function pushChatMessage(msg) {
     if (!chatRef) return;
     chatRef.push({
-        type,
-        text,
-        player: gameState.playerId,
-        name: gameState.playerName,
-        time: firebase.database.ServerValue.TIMESTAMP,
-        isClose: isClose || false
+        ...msg,
+        pid: GS.playerId,
+        ts:  firebase.database.ServerValue.TIMESTAMP,
     });
 }
 
-function displayMessage(msg) {
-    const container = document.getElementById('chatMessages');
-    if (!container) return;
-    
+function renderChatMessage(msg) {
+    const wrap = el('chatMessages');
+    if (!wrap) return;
+
     const div = document.createElement('div');
-    div.className = 'chat-message';
-    
-    if (msg.type === 'system') {
-        div.classList.add('system');
-        div.textContent = msg.text;
-    } else if (msg.type === 'correct') {
-        div.classList.add('correct');
-        const name = document.createElement('span');
-        name.className = 'username';
-        name.textContent = msg.name;
-        div.appendChild(name);
-        div.appendChild(document.createTextNode(' ' + msg.text));
-    } else {
-        div.classList.add('guess');
-        const name = document.createElement('span');
-        name.className = 'username';
-        name.textContent = msg.name;
-        div.appendChild(name);
-        div.appendChild(document.createTextNode(' ' + msg.text));
+    div.className = 'chat-msg';
+
+    switch (msg.type) {
+        case 'system':
+            div.classList.add('msg-system');
+            div.textContent = msg.text;
+            break;
+
+        case 'correct':
+            div.classList.add('msg-correct');
+            div.innerHTML = '<span class="msg-sender">' + escHtml(msg.name) + '</span>' +
+                            escHtml(msg.text);
+            break;
+
+        case 'drawer':
+            div.classList.add('msg-drawer');
+            div.innerHTML = '<span class="msg-sender">✏️ ' + escHtml(msg.name) + '</span>' +
+                            escHtml(msg.text);
+            break;
+
+        case 'guessed':
+            div.classList.add('msg-guessed');
+            div.innerHTML = '<span class="msg-sender">✅ ' + escHtml(msg.name) + '</span>' +
+                            escHtml(msg.text);
+            break;
+
+        case 'close':
+            div.classList.add('msg-close');
+            div.innerHTML = '<span class="msg-sender">' + escHtml(msg.name) + '</span>' +
+                            '🔥 ' + escHtml(msg.text) + ' (very close!)';
+            break;
+
+        case 'guess':
+        default:
+            div.classList.add('msg-guess');
+            div.innerHTML = '<span class="msg-sender">' + escHtml(msg.name) + '</span>' +
+                            escHtml(msg.text);
+            break;
     }
-    
-    container.appendChild(div);
-    // Scroll to bottom
-    container.scrollTop = container.scrollHeight;
+
+    wrap.appendChild(div);
+    wrap.scrollTop = wrap.scrollHeight;
 }
 
-// ==========================================
-// UI UPDATES
-// ==========================================
+function escHtml(str) {
+    return String(str || '')
+        .replace(/&/g,  '&amp;')
+        .replace(/</g,  '&lt;')
+        .replace(/>/g,  '&gt;')
+        .replace(/"/g,  '&quot;')
+        .replace(/'/g,  '&#x27;');
+}
 
-function updatePlayerList() {
-    const container = document.getElementById('playersList');
-    const count     = document.getElementById('playerCount');
-    if (!container || !count) return;
-    
-    container.innerHTML = '';
-    const players = Object.entries(gameState.players);
-    count.textContent = `${players.length}/8`;
-    
-    players.sort((a, b) => ((b[1] ? b[1].score : 0) - (a[1] ? a[1].score : 0)));
-    
-    players.forEach(([id, p]) => {
-        if (!p) return;
-        const div = document.createElement('div');
-        div.className = 'player-item';
-        if (id === (gameState.game ? gameState.game.drawer : null)) div.classList.add('current-drawer');
-        if (p.hasGuessed) div.classList.add('guessed');
-        
-        div.innerHTML = `
-            <div class="player-avatar">${(p.name || '?')[0].toUpperCase()}</div>
-            <div class="player-info">
-                <div class="player-name">${p.name || 'Unknown'}${id === gameState.playerId ? ' (You)' : ''}</div>
-            </div>
-            <div class="player-score">${p.score || 0}</div>
-        `;
-        container.appendChild(div);
+// ================================================================
+// PLAYER LIST RENDER
+// ================================================================
+
+function renderPlayerList() {
+    const wrap     = el('playersList');
+    const countEl  = el('playerCount');
+    if (!wrap) return;
+
+    const entries = Object.entries(GS.players).filter(([,p]) => !!p);
+    if (countEl) countEl.textContent = entries.length + '/8';
+
+    // Sort by score descending
+    entries.sort((a, b) => ((b[1].score || 0) - (a[1].score || 0)));
+
+    wrap.innerHTML = '';
+    entries.forEach(([pid, p]) => {
+        const isMe      = pid === GS.playerId;
+        const isDrawing = pid === (GS.game && GS.game.drawer);
+        const guessed   = !!(p.hasGuessed);
+
+        const item = document.createElement('div');
+        item.className = 'player-item';
+        if (isDrawing) item.classList.add('is-drawing');
+        if (guessed)   item.classList.add('has-guessed');
+        if (isMe)      item.classList.add('is-me');
+
+        const nameDisplay = escHtml(p.name || 'Unknown');
+        let   statusIcon  = '';
+        if (isDrawing) statusIcon = '✏️';
+        else if (guessed) statusIcon = '✅';
+
+        item.innerHTML =
+            '<div class="player-avatar">' + nameDisplay[0].toUpperCase() + '</div>' +
+            '<div class="player-info">' +
+                '<div class="player-name">' + nameDisplay + (isMe ? ' <span class="player-name-badge">(you)</span>' : '') + '</div>' +
+            '</div>' +
+            (statusIcon ? '<div class="player-status-icon">' + statusIcon + '</div>' : '') +
+            '<div class="player-score">' + (p.score || 0) + '</div>';
+
+        wrap.appendChild(item);
     });
 }
 
-function showRoundEnd(word) {
-    const overlay     = document.getElementById('roundOverlay');
-    const revealedWord = document.getElementById('revealedWord');
-    if (revealedWord) revealedWord.textContent = word || '---';
+// ================================================================
+// ROUND END OVERLAY
+// ================================================================
+
+function showRoundEndOverlay(word) {
+    const overlay   = el('roundEndOverlay');
+    const wordEl    = el('revealedWord');
+    const scoreList = el('roundScoresList');
+
+    if (wordEl)  wordEl.textContent = (word || '---').toUpperCase();
+
+    if (scoreList) {
+        scoreList.innerHTML = '';
+        const sorted = Object.entries(GS.players)
+            .filter(([,p]) => !!p)
+            .sort((a, b) => ((b[1].score || 0) - (a[1].score || 0)));
+
+        sorted.forEach(([pid, p], i) => {
+            const row = document.createElement('div');
+            row.className = 'round-score-item' + (p.hasGuessed ? ' got-it' : '');
+            row.innerHTML =
+                '<span class="round-score-rank">' + (i + 1) + '</span>' +
+                '<span class="round-score-name">' + escHtml(p.name || 'Unknown') + '</span>' +
+                '<span class="round-score-pts">' + (p.score || 0) + ' pts</span>';
+            scoreList.appendChild(row);
+        });
+    }
+
     if (overlay) overlay.classList.add('show');
     playSound('roundEnd');
 }
 
-function showGameOver() {
-    if (autoRestartTimer) clearInterval(autoRestartTimer);
-    
-    const modal          = document.getElementById('gameOverModal');
-    const winnerDisplay  = document.getElementById('winnerDisplay');
-    const finalScores    = document.getElementById('finalScores');
-    const autoRestartText = document.getElementById('autoRestartText');
-    
-    const sorted = Object.entries(gameState.players)
-        .sort((a, b) => ((b[1] ? b[1].score : 0) - (a[1] ? a[1].score : 0)));
-    
+// ================================================================
+// GAME OVER MODAL
+// ================================================================
+
+function showGameOverModal() {
+    if (autoRestartTimer) { clearInterval(autoRestartTimer); autoRestartTimer = null; }
+
+    const overlay   = el('gameOverModal');
+    const winnerEl  = el('gameOverWinner');
+    const scoresEl  = el('gameOverScores');
+    const restartEl = el('gameOverRestartText');
+
+    const sorted = Object.entries(GS.players)
+        .filter(([,p]) => !!p)
+        .sort((a, b) => ((b[1].score || 0) - (a[1].score || 0)));
+
     const winner = sorted[0];
-    
-    if (winnerDisplay && winner) {
-        winnerDisplay.innerHTML = `
-            <div class="winner-crown">👑</div>
-            <div class="winner-name">${winner[1].name}</div>
-            <div class="winner-score">${winner[1].score || 0} points</div>
-        `;
+
+    if (winnerEl && winner) {
+        winnerEl.innerHTML =
+            '<div class="gameover-winner-crown">👑</div>' +
+            '<div class="gameover-winner-name">' + escHtml(winner[1].name || 'Unknown') + '</div>' +
+            '<div class="gameover-winner-score">' + (winner[1].score || 0) + ' points</div>';
     }
-    
-    if (finalScores) {
-        finalScores.innerHTML = '';
-        sorted.forEach(([id, p], i) => {
-            if (!p) return;
-            const div = document.createElement('div');
-            div.className = 'final-score-item' + (i === 0 ? ' winner' : '');
-            div.innerHTML = `
-                <span class="final-rank">#${i + 1}</span>
-                <span class="final-name">${p.name}</span>
-                <span class="final-points">${p.score || 0}</span>
-            `;
-            finalScores.appendChild(div);
+
+    if (scoresEl) {
+        scoresEl.innerHTML = '';
+        const medals = ['🥇', '🥈', '🥉'];
+        sorted.forEach(([pid, p], i) => {
+            const row = document.createElement('div');
+            row.className = 'gameover-score-row' + (i === 0 ? ' is-winner' : '');
+            row.innerHTML =
+                '<span class="score-row-rank">' + (medals[i] || ('#' + (i+1))) + '</span>' +
+                '<span class="score-row-name">' + escHtml(p.name || 'Unknown') + '</span>' +
+                '<span class="score-row-pts">' + (p.score || 0) + ' pts</span>';
+            scoresEl.appendChild(row);
         });
     }
-    
-    if (modal) modal.classList.add('show');
-    
-    let secondsLeft = 10;
-    if (autoRestartText) autoRestartText.textContent = `New game starts in ${secondsLeft}...`;
-    
+
+    if (overlay) overlay.classList.add('show');
+
+    // Auto-restart countdown
+    let sec = 10;
+    if (restartEl) restartEl.textContent = 'New game starts in ' + sec + '...';
+
     autoRestartTimer = setInterval(() => {
-        secondsLeft--;
-        if (autoRestartText) autoRestartText.textContent = `New game starts in ${secondsLeft}...`;
-        if (secondsLeft <= 0) {
+        sec--;
+        if (restartEl) restartEl.textContent = 'New game starts in ' + sec + '...';
+        if (sec <= 0) {
             clearInterval(autoRestartTimer);
+            autoRestartTimer = null;
             playAgain();
         }
     }, 1000);
 }
 
-function showGame(code) {
-    const loading      = document.getElementById('loadingOverlay');
-    const loginScreen  = document.getElementById('loginScreen');
-    const gameScreen   = document.getElementById('gameScreen');
-    const roomDisplay  = document.getElementById('roomCodeDisplay');
-    
-    if (loading)     loading.classList.remove('show');
-    if (loginScreen) loginScreen.style.display = 'none';
-    if (gameScreen)  gameScreen.style.display  = 'flex';
-    if (roomDisplay) roomDisplay.textContent   = code;
-    
-    // Initialize canvas after the game screen is visible and laid out
-    requestAnimationFrame(() => {
-        setTimeout(() => {
-            initCanvas();
-            setupResizeObserver();
-        }, 50);
-    });
-    
-    playSound('enter');
-    sendChat('system', `${gameState.playerName} joined!`);
-}
+// ================================================================
+// PLAY AGAIN
+// ================================================================
 
 function playAgain() {
-    if (autoRestartTimer) clearInterval(autoRestartTimer);
-    
-    gameState.gameStarted    = false;
-    gameState.hasGuessedWord = false;
-    
-    const playerIds = Object.keys(gameState.players);
-    const updates   = {};
-    playerIds.forEach(pid => {
-        updates['players/' + pid + '/score']      = 0;
-        updates['players/' + pid + '/hasGuessed'] = false;
-    });
-    updates['state']              = 'choosing';
-    updates['round']              = 1;
-    updates['playerList']         = playerIds;
-    updates['currentDrawerIndex'] = 0;
-    updates['drawer']             = playerIds[0] || gameState.playerId;
-    updates['word']               = null;
-    updates['allGuessed']         = false;
-    
-    gameRef.update(updates);
-    
-    const modal = document.getElementById('gameOverModal');
+    if (autoRestartTimer) { clearInterval(autoRestartTimer); autoRestartTimer = null; }
+
+    const modal = el('gameOverModal');
     if (modal) modal.classList.remove('show');
+
+    GS.gameStarted         = false;
+    GS.hasGuessedCorrectly = false;
+    GS.endRoundLock        = false;
+
+    const playerIds = Object.keys(GS.players);
+
+    // Reset all scores
+    const playerUpdates = {};
+    playerIds.forEach(pid => {
+        playerUpdates[pid + '/score']      = 0;
+        playerUpdates[pid + '/hasGuessed'] = false;
+    });
+
+    playersRef.update(playerUpdates).then(() => {
+        drawRef.set(null);
+        gameRef.set({
+            state:              'choosing',
+            round:              1,
+            maxRounds:          10,
+            playerList:         playerIds,
+            currentDrawerIndex: 0,
+            drawer:             playerIds[0] || GS.playerId,
+            word:               null,
+            timer:              80,
+            maxTime:            80,
+            startTime:          null,
+            allGuessed:         false,
+        });
+    });
 }
 
+// ================================================================
+// SHOW GAME SCREEN
+// ================================================================
+
+function showGameScreen() {
+    setLoadingVisible(false);
+
+    const loginEl = el('loginScreen');
+    const gameEl  = el('gameScreen');
+    const roomEl  = el('roomCodeDisplay');
+    const lobbyEl = el('lobbyRoomCode');
+
+    if (loginEl) loginEl.style.display = 'none';
+    if (gameEl)  gameEl.style.display  = 'flex';
+    if (roomEl)  roomEl.textContent    = GS.roomCode;
+    if (lobbyEl) lobbyEl.textContent   = GS.roomCode;
+
+    // Show lobby overlay immediately if alone
+    const lobbyOverlay = el('lobbyOverlay');
+    if (lobbyOverlay) lobbyOverlay.classList.add('show');
+
+    // Init canvas after two animation frames so the flex layout is fully painted
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            initCanvas();
+        });
+    });
+
+    playSound('enter');
+
+    // Announce join in chat
+    pushChatMessage({
+        type: 'system',
+        text: '👋 ' + GS.playerName + ' joined the room!',
+    });
+}
+
+// ================================================================
+// EXIT GAME
+// ================================================================
+
 function exitGame() {
-    if (resizeObserver) {
-        resizeObserver.disconnect();
-        resizeObserver = null;
+    if (playersRef && GS.playerId) {
+        pushChatMessage({ type: 'system', text: '👋 ' + GS.playerName + ' left the game.' });
+        playersRef.child(GS.playerId).remove();
     }
-    
+
+    if (timerInterval)    { clearInterval(timerInterval);    timerInterval    = null; }
+    if (autoRestartTimer) { clearInterval(autoRestartTimer); autoRestartTimer = null; }
+    if (wordSelectTimer)  { clearInterval(wordSelectTimer);  wordSelectTimer  = null; }
+
     if (playersRef) playersRef.off();
     if (chatRef)    chatRef.off();
     if (gameRef)    gameRef.off();
-    if (drawingRef) drawingRef.off();
-    if (roomRef)    roomRef.off();
-    
-    if (playersRef && gameState.playerId) {
-        playersRef.child(gameState.playerId).remove();
-        sendChat('system', `${gameState.playerName} left.`);
-    }
-    
+    if (drawRef)    drawRef.off();
+
+    playSound('leave');
     location.reload();
 }
 
-function showToast(msg, type) {
-    const container = document.getElementById('toastContainer');
-    if (!container) { alert(msg); return; }
-    
-    const toast = document.createElement('div');
-    toast.className = 'toast ' + (type || '');
-    toast.textContent = msg;
-    container.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
+// ================================================================
+// UTILITY UI FUNCTIONS
+// ================================================================
+
+function setLoadingVisible(show) {
+    const el_ = el('loadingOverlay');
+    if (!el_) return;
+    if (show) el_.classList.add('show');
+    else      el_.classList.remove('show');
 }
 
-window.onbeforeunload = () => {
-    if (gameState.isGameActive) return 'Leave game?';
-};
+function showToast(message, type) {
+    const container = el('toastContainer');
+    if (!container) { alert(message); return; }
 
-console.log('🎮 Skribbl.io 28 — mobile-optimised engine loaded');
+    const toast = document.createElement('div');
+    toast.className = 'toast-msg';
+    if (type) toast.classList.add('toast-' + type);
+    toast.textContent = message;
+
+    container.appendChild(toast);
+    setTimeout(() => {
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+    }, 3500);
+}
+
+// ================================================================
+// BEFORE UNLOAD
+// ================================================================
+window.addEventListener('beforeunload', e => {
+    if (GS.currentState === 'drawing') {
+        e.preventDefault();
+        e.returnValue = 'You are currently in a game. Leave anyway?';
+        return e.returnValue;
+    }
+});
+
+// ================================================================
+// CONSOLE
+// ================================================================
+console.log('🎮 Skribbl.io 28 — Game engine loaded and ready');
