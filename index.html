@@ -2,254 +2,295 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <!--
-        FIXES APPLIED:
-        1. Removed maximum-scale=1.0 and user-scalable=no which Android Chrome
-           sometimes treats as a cue to force desktop layout on masked/forwarded links.
-        2. interactive-widget=resizes-content keeps the layout stable when
-           the virtual keyboard opens — the visual viewport shrinks, content resizes,
-           but we DON'T shift the whole page up.
-        3. width=device-width + initial-scale=1.0 ensures correct mobile scaling
-           even when loaded via a URL redirect or forwarded link.
-        4. Added viewport-fit=cover for notch/safe-area support.
-    -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
-    <!-- Disable phone number / email detection that can break layout -->
-    <meta name="format-detection" content="telephone=no, date=no, email=no, address=no">
-    <!-- Force mobile rendering on all browsers -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="format-detection" content="telephone=no,date=no,email=no,address=no">
     <meta name="HandheldFriendly" content="true">
     <meta name="MobileOptimized" content="width">
-    <!-- Prevent iOS from zooming on input focus (handled via font-size:16px on inputs in CSS) -->
+    <meta name="theme-color" content="#1a252f">
     <title>Skribbl.io 28</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- Login Screen -->
-    <div id="loginScreen">
+
+<!-- ====================== LOGIN SCREEN ====================== -->
+<div id="loginScreen">
+    <div class="login-scroll">
         <div class="login-container">
+
             <div class="logo-section">
                 <div class="logo-icon">🎨</div>
-                <h1>Skribbl.io 29</h1>
-                <p class="tagline">Draw, guess, and have fun!</p>
+                <h1 class="logo-title">Skribbl.io 28</h1>
+                <p class="logo-tagline">Draw, guess, and have fun with friends!</p>
             </div>
-            
+
             <div class="login-box">
                 <div class="input-group">
                     <label for="playerName">Your Name</label>
-                    <input type="text" id="playerName" placeholder="Enter your name" maxlength="12"
-                           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+                    <input type="text" id="playerName"
+                           placeholder="Enter your name..."
+                           maxlength="12"
+                           autocomplete="off"
+                           autocorrect="off"
+                           autocapitalize="off"
+                           spellcheck="false">
                     <span class="input-hint">Max 12 characters</span>
                 </div>
-                
+
                 <div class="input-group">
                     <label for="roomCode">Room Code</label>
-                    <input type="text" id="roomCode" placeholder="Leave empty to create new room" maxlength="8"
-                           autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
-                    <span class="input-hint">Join existing room or create new</span>
+                    <input type="text" id="roomCode"
+                           placeholder="Leave empty to create new room"
+                           maxlength="8"
+                           autocomplete="off"
+                           autocorrect="off"
+                           autocapitalize="characters"
+                           spellcheck="false">
+                    <span class="input-hint">Enter code to join an existing room</span>
                 </div>
-                
+
                 <button onclick="joinGame()" class="play-btn">
-                    <span class="btn-text">Play Now</span>
-                    <span class="btn-icon">🚀</span>
+                    <span class="play-btn-text">Play Now</span>
+                    <span class="play-btn-icon">🚀</span>
                 </button>
-                
-                <div class="login-info">
-                    <div class="feature-list">
-                        <div class="feature-item">✏️ Real-time drawing</div>
-                        <div class="feature-item">💬 Live chat</div>
-                        <div class="feature-item">🏆 Score points</div>
+
+                <div class="login-features">
+                    <div class="login-feature-item">
+                        <span class="feature-icon">✏️</span>
+                        <span class="feature-text">Real-time drawing</span>
+                    </div>
+                    <div class="login-feature-item">
+                        <span class="feature-icon">💬</span>
+                        <span class="feature-text">Live chat</span>
+                    </div>
+                    <div class="login-feature-item">
+                        <span class="feature-icon">🏆</span>
+                        <span class="feature-text">Score points</span>
                     </div>
                 </div>
             </div>
-            
-            <div class="footer-text">Made with ❤️ | Free to play</div>
+
+            <p class="footer-text">Made with ❤️ | Free to play</p>
+
         </div>
     </div>
+</div>
 
-    <!-- Game Screen -->
-    <div id="gameScreen">
-        <!-- Top Bar -->
-        <div class="top-bar">
-            <div class="top-left">
-                <button class="home-btn" onclick="exitGame()" title="Leave Game">🏠</button>
+<!-- ====================== GAME SCREEN ====================== -->
+<div id="gameScreen">
+
+    <!-- TOP BAR -->
+    <div class="top-bar" id="topBar">
+        <div class="top-left">
+            <button class="home-btn" onclick="exitGame()" title="Leave Game">🏠</button>
+        </div>
+
+        <div class="top-center">
+            <div class="game-status-row">
+                <span class="round-info" id="roundInfo">Round 1/10</span>
+                <span class="status-divider">|</span>
+                <span class="timer-display" id="timerDisplay">80</span>
+                <span class="timer-label">s</span>
             </div>
-            
-            <div class="top-center">
-                <div class="game-status">
-                    <span class="round-display" id="roundInfo">Round 1 of 10</span>
-                    <span class="divider">|</span>
-                    <span class="timer-display" id="timerDisplay">80</span>
-                </div>
-                <div class="word-area">
-                    <span class="word-display" id="wordDisplay">Waiting...</span>
-                </div>
-            </div>
-            
-            <div class="top-right">
-                <span class="room-code-small" id="roomCodeDisplay">----</span>
+            <div class="word-display-area">
+                <span class="word-display" id="wordDisplay">Waiting for players...</span>
             </div>
         </div>
 
-        <!-- Main Game Area -->
-        <div class="game-area">
-            <!-- Canvas Section -->
-            <div class="canvas-section">
-                <div class="canvas-wrapper">
-                    <canvas id="gameCanvas"></canvas>
-                    
-                    <!-- Drawer Badge -->
-                    <div class="drawer-badge" id="drawerBadge">✏️ You're Drawing!</div>
-                    
-                    <!-- Waiting Overlay -->
-                    <div class="waiting-overlay" id="waitingOverlay">
-                        <div class="waiting-content">
-                            <div class="spinner"></div>
-                            <div>Waiting for drawer to choose a word...</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Round End Overlay -->
-                    <div class="round-overlay" id="roundOverlay">
-                        <div class="round-content">
-                            <div class="round-title">Round Over!</div>
-                            <div class="word-reveal">The word was: <span id="revealedWord">---</span></div>
-                            <div class="round-scores" id="roundScores"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Popups (scoped inside canvas-section for correct positioning) -->
-                <div class="popup-overlay" id="popupOverlay"></div>
-                <div class="popup color-popup" id="colorPopup">
-                    <div class="popup-header">Colors <button class="close-popup" onclick="closePopups()">×</button></div>
-                    <div class="color-grid" id="colorGrid"></div>
-                </div>
-                <div class="popup size-popup" id="sizePopup">
-                    <div class="popup-header">Size <button class="close-popup" onclick="closePopups()">×</button></div>
-                    <div class="size-options" id="sizeOptions"></div>
-                </div>
-            </div>
-
-            <!-- Toolbar -->
-            <div class="toolbar-container" id="toolbarContainer">
-                <div class="toolbar" id="toolbar">
-                    <div class="tool-group">
-                        <button class="tool-btn" id="colorBtn" title="Color">
-                            <div class="color-preview" id="colorPreview"></div>
-                        </button>
-                        <button class="tool-btn" id="sizeBtn" title="Size">⚫</button>
-                        <button class="tool-btn active" id="brushBtn" title="Brush">✏️</button>
-                        <button class="tool-btn" id="eraserBtn" title="Eraser">🧼</button>
-                        <button class="tool-btn" id="bucketBtn" title="Fill">🪣</button>
-                        <button class="tool-btn" id="undoBtn" title="Undo">↩️</button>
-                        <button class="tool-btn danger" id="clearBtn" title="Clear">🗑️</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Bottom Section: Players + Chat -->
-            <div class="bottom-section">
-                <!-- Players Panel -->
-                <div class="players-panel">
-                    <div class="panel-header">
-                        <span>👥 Players</span>
-                        <span id="playerCount">0/8</span>
-                    </div>
-                    <div class="players-list" id="playersList"></div>
-                </div>
-                
-                <!-- Chat Panel -->
-                <div class="chat-panel">
-                    <div class="panel-header">
-                        <span>💬 Chat</span>
-                    </div>
-                    <div class="chat-messages" id="chatMessages"></div>
-                    <div class="chat-input-area" id="chatInputArea">
-                        <!--
-                            inputmode="text" + enterkeyhint="send" improves the
-                            virtual keyboard on Android/iOS for chat inputs.
-                            font-size 16px on the input (in CSS) prevents iOS auto-zoom.
-                        -->
-                        <input type="text" id="chatInput"
-                               placeholder="Type your guess..."
-                               maxlength="50"
-                               autocomplete="off"
-                               autocorrect="off"
-                               autocapitalize="off"
-                               spellcheck="false"
-                               inputmode="text"
-                               enterkeyhint="send">
-                        <button onclick="sendMessage()" class="send-btn">➤</button>
-                    </div>
-                </div>
+        <div class="top-right">
+            <div class="room-code-badge">
+                <span class="room-code-label">ROOM</span>
+                <span class="room-code-value" id="roomCodeDisplay">----</span>
             </div>
         </div>
     </div>
 
-    <!-- Word Selection Modal -->
-    <div class="modal-overlay" id="wordModal">
-        <div class="word-selection">
-            <div class="modal-header">
-                <h2>Choose a word</h2>
-                <div class="modal-timer" id="wordTimer">15</div>
+    <!-- CANVAS WRAPPER -->
+    <div class="canvas-wrapper" id="canvasWrapper">
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- Drawer badge -->
+        <div class="drawer-badge" id="drawerBadge">
+            <span>✏️</span>
+            <span>You are drawing!</span>
+        </div>
+
+        <!-- Waiting overlay (shown to guessers while drawer picks word) -->
+        <div class="waiting-overlay" id="waitingOverlay">
+            <div class="waiting-inner">
+                <div class="waiting-spinner"></div>
+                <p class="waiting-text">Waiting for drawer to choose a word...</p>
             </div>
-            <div class="word-options" id="wordOptions"></div>
+        </div>
+
+        <!-- Waiting for players overlay -->
+        <div class="lobby-overlay" id="lobbyOverlay">
+            <div class="lobby-inner">
+                <div class="lobby-icon">👥</div>
+                <p class="lobby-title">Waiting for players...</p>
+                <p class="lobby-sub">Need at least 2 players to start</p>
+                <div class="lobby-room-display">
+                    Room Code: <strong id="lobbyRoomCode">----</strong>
+                </div>
+            </div>
+        </div>
+
+        <!-- Round end overlay -->
+        <div class="round-end-overlay" id="roundEndOverlay">
+            <div class="round-end-card">
+                <div class="round-end-title">⏱ Round Over!</div>
+                <div class="round-end-word-label">The word was:</div>
+                <div class="round-end-word" id="revealedWord">---</div>
+                <div class="round-end-scores" id="roundScoresList"></div>
+            </div>
+        </div>
+
+    </div><!-- /#canvasWrapper -->
+
+    <!-- TOOLBAR (only shown for drawer) -->
+    <div class="toolbar-bar" id="toolbarBar">
+        <div class="toolbar-inner">
+            <button class="tool-btn" id="colorBtn" title="Pick Color">
+                <div class="color-dot" id="colorDot"></div>
+            </button>
+            <button class="tool-btn" id="sizeBtn" title="Brush Size">⚫</button>
+            <button class="tool-btn tool-active" id="brushBtn" title="Brush">✏️</button>
+            <button class="tool-btn" id="eraserBtn" title="Eraser">🧼</button>
+            <button class="tool-btn" id="bucketBtn" title="Fill">🪣</button>
+            <div class="toolbar-divider"></div>
+            <button class="tool-btn" id="undoBtn" title="Undo">↩️</button>
+            <button class="tool-btn tool-danger" id="clearBtn" title="Clear Canvas">🗑️</button>
         </div>
     </div>
 
-    <!-- Game Over Modal -->
-    <div class="game-over-modal" id="gameOverModal">
-        <div class="game-over-content">
-            <div class="trophy" id="winnerTrophy">🏆</div>
-            <h1>Game Over!</h1>
-            <div class="winner-display" id="winnerDisplay"></div>
-            <div class="final-scores" id="finalScores"></div>
-            <div class="auto-restart-text" id="autoRestartText">New game starts in 10...</div>
-            <div class="game-over-actions">
-                <button onclick="playAgain()" class="play-again-btn primary">🔄 Play Now</button>
-                <button onclick="location.reload()" class="play-again-btn secondary">🏠 Menu</button>
+    <!-- BOTTOM SECTION: players + chat -->
+    <div class="bottom-bar" id="bottomBar">
+
+        <!-- Players panel -->
+        <div class="players-panel">
+            <div class="panel-header players-header">
+                <span class="panel-header-title">👥 Players</span>
+                <span class="player-count" id="playerCount">0/8</span>
+            </div>
+            <div class="players-list" id="playersList">
+                <!-- player items injected by JS -->
             </div>
         </div>
+
+        <!-- Chat panel -->
+        <div class="chat-panel">
+            <div class="panel-header chat-header">
+                <span class="panel-header-title">💬 Chat & Guesses</span>
+            </div>
+            <div class="chat-messages" id="chatMessages">
+                <!-- messages injected by JS -->
+            </div>
+            <div class="chat-input-row" id="chatInputRow">
+                <input
+                    type="text"
+                    id="chatInput"
+                    class="chat-input"
+                    placeholder="Type your guess here..."
+                    maxlength="50"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    inputmode="text"
+                    enterkeyhint="send"
+                />
+                <button class="chat-send-btn" onclick="sendMessage()" id="sendBtn">➤</button>
+            </div>
+        </div>
+
+    </div><!-- /#bottomBar -->
+
+</div><!-- /#gameScreen -->
+
+<!-- ====================== COLOR POPUP ====================== -->
+<div class="popup-backdrop" id="popupBackdrop" onclick="closePopups()"></div>
+
+<div class="color-popup popup" id="colorPopup">
+    <div class="popup-header">
+        <span class="popup-title-text">🎨 Choose Color</span>
+        <button class="popup-close-btn" onclick="closePopups()">✕</button>
     </div>
-
-    <!-- Toast Notifications -->
-    <div class="toast-container" id="toastContainer"></div>
-
-    <!-- Loading Overlay -->
-    <div class="loading-overlay" id="loadingOverlay">
-        <div class="loading-spinner"></div>
-        <div class="loading-text">Connecting...</div>
+    <div class="color-grid" id="colorGrid">
+        <!-- color swatches injected by JS -->
     </div>
+</div>
 
-    <!-- Pull to Refresh Indicator -->
-    <div class="pull-to-refresh" id="pullToRefresh">
-        <div class="pull-spinner">↓</div>
-        <div>Pull to refresh</div>
+<div class="size-popup popup" id="sizePopup">
+    <div class="popup-header">
+        <span class="popup-title-text">⚫ Brush Size</span>
+        <button class="popup-close-btn" onclick="closePopups()">✕</button>
     </div>
+    <div class="size-options-list" id="sizeOptionsList">
+        <!-- size options injected by JS -->
+    </div>
+</div>
 
-    <!-- Audio Elements -->
-    <audio id="soundJoin" preload="auto">
-        <source src="https://files.catbox.moe/8jc19e.wav" type="audio/wav">
-    </audio>
-    <audio id="soundCorrect" preload="auto">
-        <source src="https://files.catbox.moe/7hoc5m.mp3" type="audio/mpeg">
-    </audio>
-    <audio id="soundRoundEnd" preload="auto">
-        <source src="https://files.catbox.moe/1t26uq.wav" type="audio/wav">
-    </audio>
-    <audio id="soundLeave" preload="auto">
-        <source src="https://files.catbox.moe/zhrjcv.wav" type="audio/wav">
-    </audio>
-    <audio id="soundEnter" preload="auto">
-        <source src="https://files.catbox.moe/y05klm.mp3" type="audio/mpeg">
-    </audio>
+<!-- ====================== WORD SELECTION MODAL ====================== -->
+<div class="modal-overlay" id="wordModal">
+    <div class="word-modal-card">
+        <div class="word-modal-header">
+            <h2 class="word-modal-title">Choose a word to draw!</h2>
+            <div class="word-modal-timer" id="wordModalTimer">15</div>
+        </div>
+        <p class="word-modal-hint">Pick wisely — others will try to guess it!</p>
+        <div class="word-options-list" id="wordOptionsList">
+            <!-- word buttons injected by JS -->
+        </div>
+    </div>
+</div>
 
-    <!-- Scripts -->
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
-    <script src="firebase-config.js"></script>
-    <script src="words.js"></script>
-    <script src="game.js"></script>
+<!-- ====================== GAME OVER MODAL ====================== -->
+<div class="gameover-overlay" id="gameOverModal">
+    <div class="gameover-card">
+        <div class="gameover-trophy">🏆</div>
+        <h1 class="gameover-title">Game Over!</h1>
+
+        <div class="gameover-winner" id="gameOverWinner">
+            <!-- winner info injected by JS -->
+        </div>
+
+        <div class="gameover-scores-wrap">
+            <h3 class="gameover-scores-title">Final Scores</h3>
+            <div class="gameover-scores-list" id="gameOverScores">
+                <!-- scores injected by JS -->
+            </div>
+        </div>
+
+        <p class="gameover-auto-restart" id="gameOverRestartText">New game starts in 10...</p>
+
+        <div class="gameover-actions">
+            <button class="gameover-btn gameover-btn-primary" onclick="playAgain()">🔄 Play Again</button>
+            <button class="gameover-btn gameover-btn-secondary" onclick="location.reload()">🏠 Main Menu</button>
+        </div>
+    </div>
+</div>
+
+<!-- ====================== TOAST NOTIFICATIONS ====================== -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ====================== LOADING OVERLAY ====================== -->
+<div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-spinner"></div>
+    <p class="loading-text">Connecting to server...</p>
+</div>
+
+<!-- ====================== AUDIO ====================== -->
+<audio id="soundJoin"     preload="auto"><source src="https://files.catbox.moe/8jc19e.wav"  type="audio/wav"></audio>
+<audio id="soundCorrect"  preload="auto"><source src="https://files.catbox.moe/7hoc5m.mp3"  type="audio/mpeg"></audio>
+<audio id="soundRoundEnd" preload="auto"><source src="https://files.catbox.moe/1t26uq.wav"  type="audio/wav"></audio>
+<audio id="soundLeave"    preload="auto"><source src="https://files.catbox.moe/zhrjcv.wav"  type="audio/wav"></audio>
+<audio id="soundEnter"    preload="auto"><source src="https://files.catbox.moe/y05klm.mp3"  type="audio/mpeg"></audio>
+
+<!-- ====================== SCRIPTS ====================== -->
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="words.js"></script>
+<script src="game.js"></script>
 </body>
 </html>
